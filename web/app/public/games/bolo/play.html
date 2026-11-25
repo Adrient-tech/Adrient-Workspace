@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Bolo</title>
+<!-- PWA installability -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1B5E20">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bolo">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="shortcut icon" href="images/favicon.png">
+<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){})})}</script>
+
+<!-- Orona styling (vendored offline; original CDN refs removed for PWA) -->
+<link rel="stylesheet" href="vendor/jquery-ui-1.13.2.min.css">
+<link rel="stylesheet" href="css/bolo.css">
+<link rel="stylesheet" href="css/jquery.ui.theme.css">
+
+<style>
+  /* Orona draws a full-window canvas + absolutely-positioned HUD straight onto
+     <body>. We keep that intact in #gamearea, and dock our touch controls in a
+     bar BELOW it (mirroring maelstrom/play.html) so they never sit on the map. */
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;
+    font-family:system-ui,-apple-system,sans-serif;}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column;}
+  /* The game region. Orona appends its canvas + HUD to <body>; we re-parent them
+     into #gamearea after boot, and Orona sizes the canvas to window.innerWidth/
+     innerHeight (see handleResize) which we feed via the resize hook below. */
+  #gamearea{flex:1 1 auto;min-height:0;position:relative;overflow:hidden;background:#3a6ea5;}
+  #status{position:absolute;left:0;right:0;top:42%;text-align:center;color:#dbe6ff;
+    font:600 15px system-ui,sans-serif;z-index:50;pointer-events:none;text-shadow:0 1px 3px #000;}
+
+  /* Back-to-/games pill (top-left), above the game. */
+  #backpill{position:fixed;z-index:2147483600;
+    top:calc(env(safe-area-inset-top,0px) + 8px);
+    left:calc(env(safe-area-inset-left,0px) + 8px);
+    display:inline-flex;align-items:center;gap:6px;
+    padding:7px 12px 7px 9px;border-radius:999px;
+    background:rgba(11,16,32,.78);border:1px solid #2c3e6e;color:#dbe6ff;
+    font:600 13px system-ui,sans-serif;text-decoration:none;
+    backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+  #backpill:active{background:rgba(42,62,126,.9);}
+  #backpill svg{width:16px;height:16px;fill:currentColor;}
+
+  #credit{position:fixed;left:0;bottom:1px;width:100%;text-align:center;color:#9fb;
+    font:500 9px system-ui,sans-serif;z-index:2147483000;pointer-events:none;opacity:.7;
+    text-shadow:0 1px 2px #000;}
+
+  /* ---- Touch control bar (mobile only; hidden on desktop/fine-pointer) ---- */
+  #touchbar{flex:0 0 auto;display:none;flex-direction:column;gap:6px;
+    padding:6px calc(env(safe-area-inset-right,0px) + 8px)
+      calc(env(safe-area-inset-bottom,0px) + 6px) calc(env(safe-area-inset-left,0px) + 8px);
+    background:linear-gradient(#06080f,#0b1020);border-top:1px solid #1b2742;
+    box-sizing:border-box;}
+  body.touch #touchbar{display:flex;}
+  body.touch #status{top:30%;}
+
+  .row{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+  .cluster{display:flex;align-items:center;gap:8px;}
+  .tbtn{display:flex;align-items:center;justify-content:center;
+    min-width:50px;height:50px;padding:0 6px;border-radius:12px;border:1px solid #2c3e6e;
+    background:#16224a;color:#dbe6ff;font-size:20px;font-weight:700;
+    touch-action:none;user-select:none;-webkit-user-select:none;cursor:pointer;line-height:1;}
+  .tbtn:active,.tbtn.on{background:#2a3e7e;border-color:#5a7bd6;}
+  .tbtn.fire{background:#7a1f2b;border-color:#c2415a;min-width:64px;height:56px;font-size:22px;}
+  .tbtn.fire:active,.tbtn.fire.on{background:#a8293a;}
+  .tbtn.small{min-width:42px;height:42px;font-size:16px;border-radius:10px;}
+  .tbtn.build{flex-direction:column;gap:1px;min-width:54px;height:48px;font-size:18px;
+    background:#13351f;border-color:#2d6b3f;}
+  .tbtn.build .bl{font-size:8px;color:#9fdcb0;font-weight:600;}
+  .tbtn.build:active,.tbtn.build.on{background:#1f6b3a;border-color:#4cd07a;}
+  .tlabel{font-size:9px;color:#6f80a8;text-align:center;margin-top:-1px;letter-spacing:.5px;}
+  .tcol{display:flex;flex-direction:column;align-items:center;gap:2px;}
+
+  /* When a build tool is armed, hint the user to tap the map. */
+  #buildhint{display:none;position:absolute;left:50%;top:8px;transform:translateX(-50%);
+    z-index:60;background:rgba(11,16,32,.85);border:1px solid #2d6b3f;border-radius:10px;
+    padding:6px 12px;color:#9fdcb0;font:600 12px system-ui,sans-serif;pointer-events:none;}
+  body.touch.building #buildhint{display:block;}
+
+  /* ---- Mode menu (bare play.html: Single Player vs Play Online) ---- */
+  #menu{position:fixed;inset:0;z-index:2147483640;display:none;flex-direction:column;
+    align-items:center;justify-content:center;gap:14px;
+    background:radial-gradient(120% 90% at 50% 0%,#16306b 0%,#0a1430 55%,#05070f 100%);}
+  #menu.show{display:flex;}
+  #menu h1{margin:0 0 6px;color:#dbe6ff;font:800 30px system-ui,sans-serif;letter-spacing:1px;
+    text-shadow:0 2px 8px #000;}
+  #menu .sub{color:#9fb4e0;font:500 13px system-ui;margin-top:-6px;margin-bottom:10px;opacity:.85;}
+  .mbtn{width:min(320px,84vw);padding:15px 18px;border-radius:14px;border:1px solid #2c3e6e;
+    background:#16224a;color:#eaf1ff;font:700 16px system-ui,sans-serif;cursor:pointer;
+    display:flex;align-items:center;gap:12px;justify-content:center;}
+  .mbtn:active{background:#2a3e7e;}
+  .mbtn.primary{background:#2563eb;border-color:#3b74ff;}
+  .mbtn.primary:active{background:#1d4fd0;}
+  /* Online room panel (reuses the games' GameMP look). */
+  #onlinePanel{width:min(360px,90vw);background:#0f172a;border:1px solid #243049;
+    border-radius:16px;padding:18px;color:#e8eefc;font:15px/1.5 system-ui,sans-serif;
+    box-shadow:0 18px 50px rgba(0,0,0,.6);display:none;}
+  #onlinePanel.show{display:block;}
+  #onlinePanel h3{margin:0 0 10px;font-size:18px;}
+  #onlinePanel label{display:block;font-size:12px;opacity:.7;margin:8px 0 4px;}
+  #onlinePanel input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #243049;
+    background:#0b1220;color:#e8eefc;font:inherit;box-sizing:border-box;}
+  #onlinePanel .pbtn{width:100%;padding:11px 14px;margin-top:10px;border:0;border-radius:10px;
+    cursor:pointer;font:600 15px system-ui;background:#2563eb;color:#fff;}
+  #onlinePanel .pbtn.ghost{background:transparent;border:1px solid #243049;color:#e8eefc;}
+  #shareBox{display:none;font:13px ui-monospace,monospace;word-break:break-all;
+    background:#0b1220;border:1px solid #243049;border-radius:8px;padding:8px;margin:10px 0;}
+  #onlineStatus{min-height:18px;font-size:13px;opacity:.85;margin:6px 0;}
+  .teamrow{display:flex;gap:10px;margin-top:6px;}
+  .teamrow label{display:flex;align-items:center;gap:6px;margin:0;opacity:1;cursor:pointer;
+    padding:8px 12px;border:1px solid #243049;border-radius:10px;flex:1;justify-content:center;}
+  .teamrow input{width:auto;}
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="gamearea">
+      <div id="status">Loading Bolo…</div>
+      <div id="buildhint">Tap a map tile to build</div>
+    </div>
+
+    <!-- Touch controls live here, OUTSIDE the playfield (mobile only). -->
+    <div id="touchbar">
+      <!-- Row 1: tank controls -->
+      <div class="row">
+        <div class="cluster">
+          <div class="tcol"><div class="tbtn" data-code="ArrowLeft">◀</div><div class="tlabel">TURN L</div></div>
+          <div class="tcol"><div class="tbtn" data-code="ArrowRight">▶</div><div class="tlabel">TURN R</div></div>
+        </div>
+        <div class="cluster">
+          <div class="tcol"><div class="tbtn" data-code="ArrowUp">▲</div><div class="tlabel">FWD</div></div>
+          <div class="tcol"><div class="tbtn" data-code="ArrowDown">▼</div><div class="tlabel">BRAKE</div></div>
+        </div>
+        <div class="cluster">
+          <div class="tcol"><div class="tbtn small" data-code="KeyZ">＋</div><div class="tlabel">RANGE</div></div>
+          <div class="tcol"><div class="tbtn small" data-code="KeyX">－</div><div class="tlabel">RANGE</div></div>
+          <div class="tcol"><div class="tbtn fire" data-code="Space">●</div><div class="tlabel">FIRE</div></div>
+        </div>
+      </div>
+      <!-- Row 2: builder palette. Tap to arm a tool, then tap the map to build. -->
+      <div class="row" id="buildrow">
+        <div class="tbtn build" data-tool="forest">🌲<span class="bl">TREE</span></div>
+        <div class="tbtn build" data-tool="road">▦<span class="bl">ROAD</span></div>
+        <div class="tbtn build" data-tool="building">▩<span class="bl">WALL</span></div>
+        <div class="tbtn build" data-tool="pillbox">⬢<span class="bl">PILL</span></div>
+        <div class="tbtn build" data-tool="mine">✸<span class="bl">MINE</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mode chooser (bare play.html). Hidden once a mode is selected. -->
+  <div id="menu">
+    <h1>BOLO</h1>
+    <div class="sub">Classic tank warfare on Everard Island</div>
+    <button class="mbtn primary" id="btn-solo">🎮 Single Player</button>
+    <button class="mbtn" id="btn-online">👥 Play Online</button>
+
+    <div id="onlinePanel">
+      <h3 id="onlineTitle">Play Bolo online</h3>
+      <label for="onlineNick">Your nickname</label>
+      <input id="onlineNick" maxlength="20" autocomplete="off">
+      <label>Team</label>
+      <div class="teamrow">
+        <label><input type="radio" name="oteam" value="red" checked> 🔴 Red</label>
+        <label><input type="radio" name="oteam" value="blue"> 🔵 Blue</label>
+      </div>
+      <div id="shareBox"></div>
+      <div id="onlineStatus"></div>
+      <button class="pbtn" id="onlineCreate">Create game &amp; get link</button>
+      <button class="pbtn" id="onlineJoin" style="display:none">Join game</button>
+      <button class="pbtn ghost" id="onlineCopy" style="display:none">Copy link</button>
+      <button class="pbtn ghost" id="onlineBack">Back</button>
+    </div>
+  </div>
+
+  <a id="backpill" href="/games" aria-label="Back to games">
+    <svg viewBox="0 0 24 24"><path d="M15.5 19l-7-7 7-7 1.4 1.4L11.3 12l5.6 5.6z"/></svg>
+    <span>Games</span>
+  </a>
+  <div id="credit">Orona © 2010 Stéphan Kochen (GPL v2) · Bolo graphics/sounds © 1993 Stuart Cheshire</div>
+
+  <!-- Vendored offline (was Google CDN in the spike's index-local.html) -->
+  <script src="vendor/jquery-3.7.1.min.js"></script>
+  <script src="js/jquery.cookie.js"></script>
+  <script src="vendor/jquery-ui-1.13.2.min.js"></script>
+
+  <!-- ===================================================================
+       MODE ROUTER (runs BEFORE the bundle so we can pick local vs network
+       and configure the multiplayer WS URL before the world is constructed).
+
+         play.html?local         -> single-player (BoloLocalWorld)
+         play.html?gid=<20 letters> -> online: join that room
+         play.html  (bare)        -> show the Single Player / Play Online menu
+
+       The Orona bundle's index.js selects its exported world at load time from
+       location.search (=="?local" -> local world, else network world). So we
+       only load the bundle once a mode is locked in:
+         - solo: ensure ?local is present (the original behavior).
+         - online: ensure search is ?gid=<...> (network world) and set
+           window.__BOLO_WS_URL to adrient's reverse-proxied /bolo-mp endpoint
+           (the bundle uses it verbatim — patched in bolo-bundle.js#loaded).
+       =================================================================== -->
+  <script>
+  (function () {
+    var qs = new URLSearchParams(location.search);
+    var GID_RE = /^[a-z]{20}$/;
+
+    function gidNew() {
+      var s = "abcdefghijklmnopqrstuvwxyz", out = "", a = new Uint8Array(20);
+      crypto.getRandomValues(a);
+      for (var i = 0; i < 20; i++) out += s[a[i] % 26];
+      return out;
+    }
+    var ADJ = ["Swift","Brave","Clever","Lucky","Mighty","Sly","Witty","Bold","Cosmic","Turbo","Sneaky","Jolly","Nimble","Fuzzy","Zippy","Rad"];
+    var ANIMAL = ["Otter","Fox","Panda","Falcon","Tiger","Koala","Wolf","Lynx","Raven","Gecko","Moose","Heron","Badger","Orca","Yak","Wombat"];
+    function suggestName() {
+      function pick(a){ var b=new Uint8Array(1); crypto.getRandomValues(b); return a[b[0]%a.length]; }
+      var n=new Uint8Array(1); crypto.getRandomValues(n);
+      return (pick(ADJ)+pick(ANIMAL)+(10+(n[0]%90))).slice(0,20);
+    }
+
+    // adrient reverse-proxies the Orona MP server under /bolo-mp/ (WS-capable). On
+    // HTTPS the page is wss://, on http it's ws://. The room id (gid) maps to the
+    // server's /match/<gid> endpoint -> /bolo-mp/match/<gid> through adrient.
+    function wsUrlFor(gid) {
+      var proto = location.protocol === "https:" ? "wss://" : "ws://";
+      return proto + location.host + "/bolo-mp/match/" + gid;
+    }
+
+    var gidParam = qs.get("gid") || qs.get("room");
+
+    // --- Decide the mode ----------------------------------------------------
+    if (location.search.indexOf("local") !== -1) {
+      // SINGLE PLAYER — fall through to the boot script (mode = local).
+      window.__BOLO_MODE = "local";
+      bootBundle();
+    } else if (gidParam && GID_RE.test(gidParam)) {
+      // ONLINE — join the given room. Configure the WS URL, then boot the
+      // network world. We must ensure location.search is NOT "?local" so the
+      // bundle exports the network world; "?gid=<...>" already satisfies that.
+      window.__BOLO_MODE = "online";
+      window.__BOLO_WS_URL = wsUrlFor(gidParam);
+      window.__BOLO_NICK = qs.get("nick") || "";
+      window.__BOLO_TEAM = qs.get("team") || "red";
+      bootBundle();
+    } else {
+      // BARE — show the menu.
+      showMenu();
+    }
+
+    function bootBundle() {
+      var s = document.createElement("script");
+      s.src = "js/bolo-bundle.js";
+      document.body.appendChild(s);
+    }
+
+    // --- Menu UI ------------------------------------------------------------
+    function showMenu() {
+      var menu = document.getElementById("menu");
+      var panel = document.getElementById("onlinePanel");
+      var status = document.getElementById("status");
+      if (status) status.style.display = "none";
+      menu.classList.add("show");
+
+      document.getElementById("btn-solo").onclick = function () {
+        location.replace(location.pathname + "?local");
+      };
+      document.getElementById("btn-online").onclick = function () {
+        panel.classList.add("show");
+        document.getElementById("btn-solo").style.display = "none";
+        document.getElementById("btn-online").style.display = "none";
+        var nick = document.getElementById("onlineNick");
+        if (!nick.value) nick.value = suggestName();
+      };
+      document.getElementById("onlineBack").onclick = function () {
+        location.replace(location.pathname); // back to the menu
+      };
+
+      var nickEl = document.getElementById("onlineNick");
+      var statusEl = document.getElementById("onlineStatus");
+      var shareBox = document.getElementById("shareBox");
+      var createBtn = document.getElementById("onlineCreate");
+      var copyBtn = document.getElementById("onlineCopy");
+
+      function team() {
+        var r = document.querySelector('input[name="oteam"]:checked');
+        return r ? r.value : "red";
+      }
+      function go(gid) {
+        var u = location.pathname + "?gid=" + gid +
+          "&nick=" + encodeURIComponent(nickEl.value || suggestName()) +
+          "&team=" + team();
+        location.assign(u);
+      }
+
+      createBtn.onclick = function () {
+        var gid = gidNew();
+        var link = location.origin + location.pathname + "?gid=" + gid;
+        shareBox.style.display = "block";
+        shareBox.textContent = link;
+        copyBtn.style.display = "block";
+        statusEl.textContent = "Share this link, then click Start to enter the game.";
+        createBtn.textContent = "Start game →";
+        createBtn.onclick = function () { go(gid); };
+        copyBtn.onclick = function () {
+          if (navigator.clipboard) navigator.clipboard.writeText(link);
+          copyBtn.textContent = "Copied!";
+        };
+      };
+    }
+  })();
+  </script>
+
+  <!-- ===================================================================
+       BOOT + CONTROLS — runs after the bundle is appended. The bundle defines
+       window.BoloClient (local or network world per the mode router above).
+       =================================================================== -->
+  <script>
+  window.addEventListener("DOMContentLoaded", function () { /* ensure DOM ready */ });
+  (function () {
+    var statusEl = document.getElementById("status");
+    function setStatus(t){ if(!statusEl) return; if(t){ statusEl.textContent=t; statusEl.style.display=""; } else { statusEl.style.display="none"; } }
+
+    // Wait for the bundle (appended dynamically by the mode router) to define
+    // window.BoloClient, then construct + start the world for the chosen mode.
+    function whenBundleReady(fn) {
+      if (!window.__BOLO_MODE) return; // bare menu: nothing to boot
+      var tries = 0;
+      var t = setInterval(function () {
+        if (window.BoloClient && window.jQuery) { clearInterval(t); fn(); }
+        else if (++tries > 600) { clearInterval(t); setStatus("Failed to load Bolo"); }
+      }, 25);
+    }
+
+    whenBundleReady(function () {
+      $(function () {
+        try {
+          var World = window.BoloClient;
+          window.world = new World();
+          window.world.start();
+          window.__boloStarted = true;
+
+          // ONLINE: auto-fill + submit the join dialog from the URL (nick/team),
+          // exactly mirroring the human flow (same as the M1 mp.html harness).
+          if (window.__BOLO_MODE === "online" && window.__BOLO_NICK) {
+            var jt = 0;
+            var ji = setInterval(function () {
+              var d = document.getElementById("join-dialog");
+              if (d) {
+                try {
+                  $("#join-nick-field").val(window.__BOLO_NICK);
+                  var team = window.__BOLO_TEAM || "red";
+                  $("#join-team-" + team).prop("checked", true).attr("checked", "checked").trigger("change");
+                  $("#join-submit").trigger("click");
+                } catch (e) {}
+                clearInterval(ji);
+              } else if (++jt > 600) { clearInterval(ji); }
+            }, 25);
+          }
+
+          // Orona appends its canvas + HUD straight to <body>. Re-home them into
+          // the game region so the touchbar can sit below without overlapping.
+          var tries = 0;
+          var homeTimer = setInterval(function () {
+            var area = document.getElementById("gamearea");
+            var canvas = document.querySelector("body > canvas");
+            if (canvas) {
+              area.appendChild(canvas);
+              Array.prototype.slice.call(document.querySelectorAll("body > div"))
+                .forEach(function (d) {
+                  if (d.id === "wrap" || d.id === "backpill" || d.id === "credit" || d.id === "menu") return;
+                  area.appendChild(d);
+                });
+              setStatus("");
+              clearInterval(homeTimer);
+              sizeCanvasToArea();
+            } else if (++tries > 120) {
+              clearInterval(homeTimer);
+            }
+          }, 50);
+        } catch (e) {
+          window.__boloError = String((e && e.stack) || e);
+          setStatus("Failed to start Bolo");
+          var pre = document.createElement("pre");
+          pre.style.cssText = "color:#f88;white-space:pre-wrap;padding:12px;font:12px monospace;";
+          pre.textContent = window.__boloError;
+          document.getElementById("gamearea").appendChild(pre);
+          throw e;
+        }
+      });
+    });
+
+    // Orona's renderer sizes its canvas to window.innerWidth/innerHeight on
+    // resize. With a docked touchbar the playfield is shorter than the window,
+    // so we override the canvas box to the #gamearea rect and re-fire resize so
+    // Orona recomputes its internal pixel dimensions to match.
+    function sizeCanvasToArea() {
+      var area = document.getElementById("gamearea");
+      var canvas = area.querySelector("canvas");
+      if (!canvas) return;
+      var r = area.getBoundingClientRect();
+      var w = Math.max(1, Math.round(r.width));
+      var h = Math.max(1, Math.round(r.height));
+      var ow = Object.getOwnPropertyDescriptor(window, "innerWidth");
+      var oh = Object.getOwnPropertyDescriptor(window, "innerHeight");
+      try {
+        Object.defineProperty(window, "innerWidth", { configurable: true, get: function () { return w; } });
+        Object.defineProperty(window, "innerHeight", { configurable: true, get: function () { return h; } });
+        $(window).trigger("resize");
+      } finally {
+        if (ow) Object.defineProperty(window, "innerWidth", ow); else { try { delete window.innerWidth; } catch (e) {} }
+        if (oh) Object.defineProperty(window, "innerHeight", oh); else { try { delete window.innerHeight; } catch (e) {} }
+      }
+    }
+    var resizeT;
+    window.addEventListener("resize", function () { clearTimeout(resizeT); resizeT = setTimeout(sizeCanvasToArea, 120); });
+    window.addEventListener("orientationchange", function () { setTimeout(sizeCanvasToArea, 250); });
+
+    // ===================================================================
+    // Touch controls
+    // ===================================================================
+    var KEYMAP = {
+      "ArrowLeft":  { key:"ArrowLeft",  keyCode:37 },
+      "ArrowRight": { key:"ArrowRight", keyCode:39 },
+      "ArrowUp":    { key:"ArrowUp",    keyCode:38 },
+      "ArrowDown":  { key:"ArrowDown",  keyCode:40 },
+      "Space":      { key:" ",          keyCode:32 },
+      "KeyZ":       { key:"z",          keyCode:90 },
+      "KeyX":       { key:"x",          keyCode:88 }
+    };
+    function inputTarget() {
+      return document.getElementById("input-dummy")
+        || document.querySelector("#gamearea canvas")
+        || window;
+    }
+    function dispatchKey(type, code) {
+      var info = KEYMAP[code] || {};
+      var keyCode = info.keyCode || 0;
+      var ev;
+      try {
+        ev = new KeyboardEvent(type, { key: info.key || code, code: code,
+          keyCode: keyCode, which: keyCode, bubbles: true, cancelable: true, view: window });
+      } catch (e) {
+        ev = document.createEvent("Event"); ev.initEvent(type, true, true);
+        ev.key = info.key || code; ev.code = code;
+      }
+      try { Object.defineProperty(ev, "keyCode", { value: keyCode }); Object.defineProperty(ev, "which", { value: keyCode }); } catch (e) {}
+      var t = inputTarget();
+      t.dispatchEvent(ev);
+    }
+
+    var isTouch = (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) || ("ontouchstart" in window);
+    if (isTouch) document.body.classList.add("touch");
+
+    function bindHold(el) {
+      var code = el.getAttribute("data-code");
+      if (!code) return;
+      var held = false;
+      function down(e){ if(e) e.preventDefault(); if(held) return; held=true; el.classList.add("on"); dispatchKey("keydown", code); }
+      function up(e){ if(e) e.preventDefault(); if(!held) return; held=false; el.classList.remove("on"); dispatchKey("keyup", code); }
+      el.addEventListener("touchstart", down, { passive:false });
+      el.addEventListener("touchend", up, { passive:false });
+      el.addEventListener("touchcancel", up, { passive:false });
+      el.addEventListener("mousedown", down);
+      el.addEventListener("mouseup", up);
+      el.addEventListener("mouseleave", up);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll("#touchbar .tbtn[data-code]"), bindHold);
+
+    // -------- Builder palette --------
+    var armedTool = null;
+    function clearArmed() {
+      armedTool = null;
+      document.body.classList.remove("building");
+      Array.prototype.forEach.call(document.querySelectorAll("#buildrow .tbtn"), function (b){ b.classList.remove("on"); });
+    }
+    function armTool(name, btn) {
+      var radio = document.getElementById("tool-" + name);
+      if (!radio) return; // HUD not ready yet
+      var wasArmed = armedTool === name;
+      $(radio).trigger("click");
+      Array.prototype.forEach.call(document.querySelectorAll("#buildrow .tbtn"), function (b){ b.classList.remove("on"); });
+      if (wasArmed) {
+        armedTool = null;
+        document.body.classList.remove("building");
+      } else {
+        armedTool = name;
+        if (btn) btn.classList.add("on");
+        document.body.classList.add("building");
+      }
+    }
+    Array.prototype.forEach.call(document.querySelectorAll("#buildrow .tbtn[data-tool]"), function (btn) {
+      function tap(e){ e.preventDefault(); armTool(btn.getAttribute("data-tool"), btn); }
+      btn.addEventListener("touchstart", tap, { passive:false });
+      btn.addEventListener("click", function(e){ if(!isTouch){} ; e.preventDefault(); });
+      btn.addEventListener("mousedown", tap);
+    });
+
+    function forwardMapClick(clientX, clientY) {
+      var canvas = document.querySelector("#gamearea canvas");
+      if (!canvas) return;
+      var pageX = clientX + window.scrollX;
+      var pageY = clientY + window.scrollY;
+      function fire(type) {
+        var ev;
+        try {
+          ev = new MouseEvent(type, { clientX: clientX, clientY: clientY,
+            bubbles: true, cancelable: true, view: window });
+        } catch (e) {
+          ev = document.createEvent("MouseEvent");
+          ev.initMouseEvent(type, true, true, window, 0, 0, 0, clientX, clientY, false, false, false, false, 0, null);
+        }
+        try { Object.defineProperty(ev, "pageX", { value: pageX }); Object.defineProperty(ev, "pageY", { value: pageY }); } catch (e) {}
+        canvas.dispatchEvent(ev);
+      }
+      fire("mousemove");
+      fire("click");
+    }
+    document.getElementById("gamearea").addEventListener("touchstart", function (e) {
+      if (!armedTool) return;
+      if (!e.touches || !e.touches.length) return;
+      var t = e.touches[0];
+      if (t.target && (t.target.closest && t.target.closest("#backpill,#touchbar"))) return;
+      e.preventDefault();
+      forwardMapClick(t.clientX, t.clientY);
+    }, { passive:false });
+
+    document.getElementById("gamearea").addEventListener("pointerdown", function () {
+      var inp = document.getElementById("input-dummy");
+      if (inp && !armedTool) try { inp.focus(); } catch (e) {}
+    });
+  })();
+  </script>
+</body>
+</html>

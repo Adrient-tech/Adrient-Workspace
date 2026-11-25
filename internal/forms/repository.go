@@ -1,0 +1,510 @@
+// Package forms is the data-access + service layer for Forms (Google
+// Forms–style surveys & quizzes). A form is a title/description plus an
+// ordered list of questions stored as JSON; responses are individual
+// submissions stored as a JSON answers map.
+package forms
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// ErrNotFound is returned when no form/response matches the given id (within org).
+var ErrNotFound = errors.New("form not found")
+
+// ErrAlreadyResponded is returned when a form limits respondents to one
+// response and the respondent already submitted one.
+var ErrAlreadyResponded = errors.New("you've already responded to this form")
+
+// ErrSignInRequired is returned for an anonymous submission to a form that
+// limits respondents to one response (the limit is per signed-in user).
+var ErrSignInRequired = errors.New("this form requires sign-in")
+
+// Question types supported by the editor / fill view.
+const (
+	TypeShortAnswer    = "short_answer"
+	TypeParagraph      = "paragraph"
+	TypeMultipleChoice = "multiple_choice"
+	TypeCheckboxes     = "checkboxes"
+	TypeDropdown       = "dropdown"
+	TypeLinearScale    = "linear_scale"
+	TypeDate           = "date"
+	TypeTime           = "time"
+	TypeFileUpload     = "file_upload"
+	// Grid questions: rows x columns (columns are Options). Answers are a
+	// JSON object keyed by row label: a column string (multiple-choice grid)
+	// or a list of column strings (checkbox grid).
+	TypeMultipleChoiceGrid = "multiple_choice_grid"
+	TypeCheckboxGrid       = "checkbox_grid"
+	// TypeRating is a 1..ScaleMax icon rating (stars/hearts/thumbs).
+	TypeRating = "rating"
+)
+
+// SubmitTarget is the special go_to_section value meaning "submit the form".
+const SubmitTarget = "__submit__"
+
+// Question is one question within a form. Stored as a JSON element of the
+// form's `questions` array.
+type Question struct {
+	ID            string   `json:"id"`
+	Type          string   `json:"type"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Required      bool     `json:"required"`
+	Options       []string `json:"options,omitempty"`
+	ScaleMin      int32    `json:"scale_min,omitempty"`
+	ScaleMax      int32    `json:"scale_max,omitempty"`
+	ScaleMinLabel string   `json:"scale_min_label,omitempty"`
+	ScaleMaxLabel string   `json:"scale_max_label,omitempty"`
+	// Quiz fields.
+	Points         int32    `json:"points,omitempty"`
+	CorrectAnswers []string `json:"correct_answers,omitempty"`
+	// Section branching: maps option value -> target section id (or SubmitTarget).
+	GoToSection map[string]string `json:"go_to_section,omitempty"`
+	// IsSection: when true this is a section divider, not a real question.
+	IsSection bool `json:"is_section,omitempty"`
+	// Validation is an optional response-validation rule.
+	Validation *Validation `json:"validation,omitempty"`
+	// TextFormat / Mask restrict short-answer input (see validate.go).
+	TextFormat string `json:"text_format,omitempty"`
+	Mask       string `json:"mask,omitempty"`
+	// Rows are grid rows; the grid's columns are Options.
+	Rows              []string `json:"rows,omitempty"`
+	LimitOnePerColumn bool     `json:"limit_one_per_column,omitempty"`
+	// RatingIcon is "star" (default), "heart" or "thumb".
+	RatingIcon string `json:"rating_icon,omitempty"`
+	// AfterSection (section dividers only): "" = next section, a section id,
+	// or SubmitTarget.
+	AfterSection string `json:"after_section,omitempty"`
+}
+
+// Validation is a Google-Forms-style response validation rule. See the
+// FormValidation proto message for the kind/op pairs.
+type Validation struct {
+	Kind      string `json:"kind"`
+	Op        string `json:"op"`
+	Value     string `json:"value,omitempty"`
+	Value2    string `json:"value2,omitempty"`
+	ErrorText string `json:"error_text,omitempty"`
+}
+
+// Settings holds per-form behaviour toggles.
+type Settings struct {
+	CollectEmail        bool   `json:"collect_email"`
+	LimitOneResponse    bool   `json:"limit_one_response"`
+	ShowProgressBar     bool   `json:"show_progress_bar"`
+	ShuffleQuestions    bool   `json:"shuffle_questions"`
+	ConfirmationMessage string `json:"confirmation_message"`
+	IsQuiz              bool   `json:"is_quiz"`
+	// AfterFirstSection: where to go after the implicit first section.
+	AfterFirstSection string `json:"after_first_section,omitempty"`
+}
+
+// Form is the in-memory representation of a adrient.forms row.
+type Form struct {
+	ID            string
+	OrgID         string
+	OwnerID       string
+	Title         string
+	Description   string
+	Questions     []Question
+	Settings      Settings
+	Accepting     bool
+	ResponseCount int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Fields bundles the editable attributes of a form (used by Create/Update).
+type Fields struct {
+	Title       string
+	Description string
+	Questions   []Question
+	Settings    Settings
+	Accepting   bool
+}
+
+// Response is one respondent's submission.
+type Response struct {
+	ID              string
+	FormID          string
+	RespondentEmail string
+	// Answers maps question id -> answer. A value is either a string (text,
+	// choice, dropdown, scale, date, time) or a []string (checkboxes).
+	// For file_upload questions the answer is a blob key string.
+	Answers map[string]any
+	// Score is nil for non-quiz forms; set on quiz submissions.
+	Score     *float64
+	MaxScore  *float64
+	CreatedAt time.Time
+}
+
+// ResponseFile holds metadata for a file uploaded with a file_upload question.
+type ResponseFile struct {
+	ID          string
+	ResponseID  string
+	QuestionID  string
+	OrgID       string
+	BlobKey     string
+	Filename    string
+	ContentType string
+	SizeBytes   int64
+	CreatedAt   time.Time
+}
+
+// Repository reads and writes forms and their responses.
+type Repository struct {
+	pool *pgxpool.Pool
+}
+
+// NewRepository constructs a Repository over the given pool.
+func NewRepository(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
+
+const formColumns = `f.id::text, f.org_id::text, f.owner_id::text, f.title, f.description,
+	f.questions, f.settings, f.accepting, f.created_at, f.updated_at,
+	(SELECT count(*) FROM adrient.form_responses r WHERE r.form_id = f.id)`
+
+func marshalQuestions(qs []Question) []byte {
+	if qs == nil {
+		qs = []Question{}
+	}
+	b, _ := json.Marshal(qs)
+	return b
+}
+
+func marshalSettings(s Settings) []byte {
+	b, _ := json.Marshal(s)
+	return b
+}
+
+func scanForm(row pgx.Row) (Form, error) {
+	var f Form
+	var questions, settings []byte
+	err := row.Scan(&f.ID, &f.OrgID, &f.OwnerID, &f.Title, &f.Description,
+		&questions, &settings, &f.Accepting, &f.CreatedAt, &f.UpdatedAt, &f.ResponseCount)
+	if err != nil {
+		return Form{}, err
+	}
+	if len(questions) > 0 {
+		_ = json.Unmarshal(questions, &f.Questions)
+	}
+	if len(settings) > 0 {
+		_ = json.Unmarshal(settings, &f.Settings)
+	}
+	if f.Questions == nil {
+		f.Questions = []Question{}
+	}
+	return f, nil
+}
+
+// Create inserts a new form.
+func (r *Repository) Create(ctx context.Context, orgID, ownerID string, fl Fields) (Form, error) {
+	// formColumns is aliased "f."; wrap the INSERT in a CTE so the alias applies.
+	q := `WITH f AS (
+		INSERT INTO adrient.forms (org_id, owner_id, title, description, questions, settings, accepting)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		RETURNING *
+	) SELECT ` + formColumns + ` FROM f`
+	f, err := scanForm(r.pool.QueryRow(ctx, q, orgID, ownerID, fl.Title, fl.Description,
+		marshalQuestions(fl.Questions), marshalSettings(fl.Settings), fl.Accepting))
+	if err != nil {
+		return Form{}, fmt.Errorf("forms.Create: %w", err)
+	}
+	return f, nil
+}
+
+// Get returns a form within orgID, or ErrNotFound.
+func (r *Repository) Get(ctx context.Context, orgID, id string) (Form, error) {
+	if !isUUID(id) {
+		return Form{}, ErrNotFound
+	}
+	q := `SELECT ` + formColumns + ` FROM adrient.forms f WHERE f.id=$1 AND f.org_id=$2 AND f.trashed_at IS NULL`
+	f, err := scanForm(r.pool.QueryRow(ctx, q, id, orgID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Form{}, ErrNotFound
+	}
+	if err != nil {
+		return Form{}, fmt.Errorf("forms.Get: %w", err)
+	}
+	return f, nil
+}
+
+// GetForFill returns a form by id regardless of org (used by the public fill
+// view), as long as it is not trashed and is accepting responses is checked by
+// the caller. Only non-trashed forms are returned.
+func (r *Repository) GetForFill(ctx context.Context, id string) (Form, error) {
+	if !isUUID(id) {
+		return Form{}, ErrNotFound
+	}
+	q := `SELECT ` + formColumns + ` FROM adrient.forms f WHERE f.id=$1 AND f.trashed_at IS NULL`
+	f, err := scanForm(r.pool.QueryRow(ctx, q, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Form{}, ErrNotFound
+	}
+	if err != nil {
+		return Form{}, fmt.Errorf("forms.GetForFill: %w", err)
+	}
+	return f, nil
+}
+
+// List returns all non-trashed forms in orgID, newest first.
+func (r *Repository) List(ctx context.Context, orgID string) ([]Form, error) {
+	q := `SELECT ` + formColumns + ` FROM adrient.forms f
+		WHERE f.org_id=$1 AND f.trashed_at IS NULL
+		ORDER BY f.updated_at DESC`
+	rows, err := r.pool.Query(ctx, q, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("forms.List: %w", err)
+	}
+	defer rows.Close()
+	var out []Form
+	for rows.Next() {
+		f, err := scanForm(rows)
+		if err != nil {
+			return nil, fmt.Errorf("forms.List scan: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// isUUID reports whether id is a canonical UUID. Ids from request paths are
+// checked before they reach a uuid column, so a malformed id is "not found"
+// rather than a database error surfaced as a 500.
+func isUUID(id string) bool {
+	if len(id) != 36 {
+		return false
+	}
+	for i, c := range id {
+		switch i {
+		case 8, 13, 18, 23:
+			if c != '-' {
+				return false
+			}
+		default:
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// Update replaces the editable fields of a form within orgID.
+func (r *Repository) Update(ctx context.Context, orgID, id string, fl Fields) (Form, error) {
+	if !isUUID(id) {
+		return Form{}, ErrNotFound
+	}
+	q := `WITH f AS (
+		UPDATE adrient.forms SET
+			title=$3, description=$4, questions=$5, settings=$6, accepting=$7, updated_at=now()
+		WHERE id=$1 AND org_id=$2 AND trashed_at IS NULL
+		RETURNING *
+	) SELECT ` + formColumns + ` FROM f`
+	f, err := scanForm(r.pool.QueryRow(ctx, q, id, orgID, fl.Title, fl.Description,
+		marshalQuestions(fl.Questions), marshalSettings(fl.Settings), fl.Accepting))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Form{}, ErrNotFound
+	}
+	if err != nil {
+		return Form{}, fmt.Errorf("forms.Update: %w", err)
+	}
+	return f, nil
+}
+
+// Trash soft-deletes a form within orgID.
+func (r *Repository) Trash(ctx context.Context, orgID, id string) error {
+	if !isUUID(id) {
+		return ErrNotFound
+	}
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE adrient.forms SET trashed_at=now(), updated_at=now()
+		 WHERE id=$1 AND org_id=$2 AND trashed_at IS NULL`, id, orgID)
+	if err != nil {
+		return fmt.Errorf("forms.Trash: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// --- Responses ---
+
+func marshalAnswers(a map[string]any) []byte {
+	if a == nil {
+		a = map[string]any{}
+	}
+	b, _ := json.Marshal(a)
+	return b
+}
+
+func scanResponse(row pgx.Row) (Response, error) {
+	var r Response
+	var answers []byte
+	err := row.Scan(&r.ID, &r.FormID, &r.RespondentEmail, &answers, &r.CreatedAt, &r.Score)
+	if err != nil {
+		return Response{}, err
+	}
+	if len(answers) > 0 {
+		_ = json.Unmarshal(answers, &r.Answers)
+	}
+	if r.Answers == nil {
+		r.Answers = map[string]any{}
+	}
+	return r, nil
+}
+
+// SubmitResponse records a submission for a form. orgID/respondentID are stored
+// for ownership/auditing; respondentID may be empty for anonymous submissions.
+// score is nil for non-quiz forms.
+//
+// When the form has "Limit to 1 response" on (read from the form row, so the
+// caller can't bypass it), an anonymous submission returns ErrSignInRequired
+// and a respondent who already has a response gets ErrAlreadyResponded. The
+// check before the insert catches responses from before the limit was turned
+// on; the partial unique index form_responses_limit_one_uniq (0097) makes two
+// racing first submissions yield exactly one row.
+func (r *Repository) SubmitResponse(ctx context.Context, orgID, formID, respondentID, email string, answers map[string]any, score *float64) (Response, error) {
+	var limitOne bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT COALESCE((settings->>'limit_one_response')::boolean, false)
+		 FROM adrient.forms WHERE id=$1 AND org_id=$2`, formID, orgID).Scan(&limitOne)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Response{}, ErrNotFound
+	}
+	if err != nil {
+		return Response{}, fmt.Errorf("forms.SubmitResponse: %w", err)
+	}
+	var rid any
+	if respondentID != "" {
+		rid = respondentID
+	}
+	if limitOne {
+		if respondentID == "" {
+			return Response{}, ErrSignInRequired
+		}
+		var exists bool
+		if err := r.pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM adrient.form_responses WHERE form_id=$1 AND respondent_id=$2)`,
+			formID, respondentID).Scan(&exists); err != nil {
+			return Response{}, fmt.Errorf("forms.SubmitResponse: %w", err)
+		}
+		if exists {
+			return Response{}, ErrAlreadyResponded
+		}
+	}
+	q := `INSERT INTO adrient.form_responses (form_id, org_id, respondent_id, respondent_email, answers, score, limit_one)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		RETURNING id::text, form_id::text, respondent_email, answers, created_at, score`
+	resp, err := scanResponse(r.pool.QueryRow(ctx, q, formID, orgID, rid, email, marshalAnswers(answers), score, limitOne))
+	if isUniqueViolation(err) {
+		return Response{}, ErrAlreadyResponded
+	}
+	if err != nil {
+		return Response{}, fmt.Errorf("forms.SubmitResponse: %w", err)
+	}
+	return resp, nil
+}
+
+// UserResponse returns respondentID's most recent response to formID within
+// orgID, or ErrNotFound if they haven't responded.
+func (r *Repository) UserResponse(ctx context.Context, orgID, formID, respondentID string) (Response, error) {
+	q := `SELECT id::text, form_id::text, respondent_email, answers, created_at, score
+		FROM adrient.form_responses
+		WHERE form_id=$1 AND org_id=$2 AND respondent_id=$3
+		ORDER BY created_at DESC LIMIT 1`
+	resp, err := scanResponse(r.pool.QueryRow(ctx, q, formID, orgID, respondentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Response{}, ErrNotFound
+	}
+	if err != nil {
+		return Response{}, fmt.Errorf("forms.UserResponse: %w", err)
+	}
+	return resp, nil
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505).
+func isUniqueViolation(err error) bool {
+	var pe interface{ SQLState() string }
+	return errors.As(err, &pe) && pe.SQLState() == "23505"
+}
+
+// ListResponses returns all responses for a form within orgID, newest first.
+func (r *Repository) ListResponses(ctx context.Context, orgID, formID string) ([]Response, error) {
+	q := `SELECT id::text, form_id::text, respondent_email, answers, created_at, score
+		FROM adrient.form_responses
+		WHERE form_id=$1 AND org_id=$2
+		ORDER BY created_at DESC`
+	rows, err := r.pool.Query(ctx, q, formID, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("forms.ListResponses: %w", err)
+	}
+	defer rows.Close()
+	var out []Response
+	for rows.Next() {
+		resp, err := scanResponse(rows)
+		if err != nil {
+			return nil, fmt.Errorf("forms.ListResponses scan: %w", err)
+		}
+		out = append(out, resp)
+	}
+	return out, rows.Err()
+}
+
+// DeleteResponses deletes all responses for a form within orgID, returning the
+// number deleted.
+func (r *Repository) DeleteResponses(ctx context.Context, orgID, formID string) (int64, error) {
+	tag, err := r.pool.Exec(ctx,
+		`DELETE FROM adrient.form_responses WHERE form_id=$1 AND org_id=$2`, formID, orgID)
+	if err != nil {
+		return 0, fmt.Errorf("forms.DeleteResponses: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// --- ResponseFiles (file_upload question type) ---
+
+// AddResponseFile stores metadata for a file uploaded with a file_upload question.
+func (r *Repository) AddResponseFile(ctx context.Context, rf ResponseFile) (ResponseFile, error) {
+	q := `INSERT INTO adrient.form_response_files
+		(response_id, question_id, org_id, blob_key, filename, content_type, size_bytes)
+		VALUES ($1,$2,$3,$4,$5,$6,$7)
+		RETURNING id::text, response_id::text, question_id, org_id::text, blob_key, filename, content_type, size_bytes, created_at`
+	var out ResponseFile
+	err := r.pool.QueryRow(ctx, q, rf.ResponseID, rf.QuestionID, rf.OrgID, rf.BlobKey, rf.Filename, rf.ContentType, rf.SizeBytes).
+		Scan(&out.ID, &out.ResponseID, &out.QuestionID, &out.OrgID, &out.BlobKey, &out.Filename, &out.ContentType, &out.SizeBytes, &out.CreatedAt)
+	if err != nil {
+		return ResponseFile{}, fmt.Errorf("forms.AddResponseFile: %w", err)
+	}
+	return out, nil
+}
+
+// ListResponseFiles returns all file-upload attachments for a response.
+func (r *Repository) ListResponseFiles(ctx context.Context, responseID string) ([]ResponseFile, error) {
+	q := `SELECT id::text, response_id::text, question_id, org_id::text, blob_key, filename, content_type, size_bytes, created_at
+		FROM adrient.form_response_files
+		WHERE response_id=$1
+		ORDER BY created_at`
+	rows, err := r.pool.Query(ctx, q, responseID)
+	if err != nil {
+		return nil, fmt.Errorf("forms.ListResponseFiles: %w", err)
+	}
+	defer rows.Close()
+	var out []ResponseFile
+	for rows.Next() {
+		var f ResponseFile
+		if err := rows.Scan(&f.ID, &f.ResponseID, &f.QuestionID, &f.OrgID, &f.BlobKey, &f.Filename, &f.ContentType, &f.SizeBytes, &f.CreatedAt); err != nil {
+			return nil, fmt.Errorf("forms.ListResponseFiles scan: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}

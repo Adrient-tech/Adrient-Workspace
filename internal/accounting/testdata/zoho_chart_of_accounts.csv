@@ -1,0 +1,9 @@
+Account Name,Account Code,Account Type,Description
+Petty Cash,1001,Cash,Petty cash box
+HDFC Current,1002,Bank,
+Trade Debtors,1003,Accounts Receivable,
+Office Furniture,1500,Fixed Asset,
+Sundry Creditors,2001,Accounts Payable,
+Zoho Income,4001,Income,
+Software Subscriptions,6501,Expense,
+Weird One,9999,Mystery Type,

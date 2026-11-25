@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF - Adrient Workspace</title>
+    <style>
+      #pre-splash{position:fixed;inset:0;z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#fff;color:#555e5c;font-family:system-ui,sans-serif;transition:opacity .25s ease}
+      #pre-splash.out{opacity:0;pointer-events:none}
+      #pre-splash .ic{width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,#f0614f,#c4261d);color:#fff;font:700 24px system-ui,sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+      #pre-splash b{font-weight:600;font-size:18px}
+      #pre-splash .bar{position:relative;width:160px;height:3px;border-radius:2px;overflow:hidden;background:rgba(18,108,90,.15)}
+      #pre-splash .bar i{position:absolute;top:0;bottom:0;border-radius:2px;background:#126C5A;animation:pre-splash-bar 1.3s ease-in-out infinite}
+      @keyframes pre-splash-bar{0%{left:-40%;width:40%}50%{left:30%;width:50%}100%{left:100%;width:40%}}
+      @media (prefers-color-scheme:dark){#pre-splash{background:#0b0d0e;color:#b8c2bf}}
+      @media (prefers-reduced-motion:reduce){#pre-splash{transition:none}#pre-splash .bar i{animation:none;left:0;width:100%;opacity:.6}}
+    </style>
+  </head>
+  <body>
+    <div id="pre-splash" role="status" aria-label="Loading"><div class="ic">PDF</div><b>Adrient PDF</b><div class="bar"><i></i></div></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          var el = document.getElementById("pre-splash");
+          if (!el) return;
+          el.classList.add("out");
+          setTimeout(function () { el.remove(); }, 300);
+        }, 150);
+      });
+    </script>
+  </body>
+</html>

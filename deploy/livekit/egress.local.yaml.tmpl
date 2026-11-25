@@ -1,0 +1,9 @@
+# Local dev LiveKit Egress (recording). Rendered by deploy/local/stack.sh into
+# $ADRIENT_LOCAL_DATA/livekit/egress.yaml with the generated keys; never commit it.
+api_key: @@KEY@@
+api_secret: @@SECRET@@
+ws_url: ws://127.0.0.1:7880
+redis:
+  address: 127.0.0.1:6390
+health_port: 8089
+log_level: info

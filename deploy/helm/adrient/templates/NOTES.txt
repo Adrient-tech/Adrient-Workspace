@@ -1,0 +1,98 @@
+
+========================================================================
+  Adrient Workspace installed  (release: {{ .Release.Name }}, ns: {{ .Release.Namespace }})
+========================================================================
+
+Bundled components:
+  - Postgres (StatefulSet)        {{ if .Values.postgres.externalDsn }}EXTERNAL (postgres.externalDsn set){{ else }}{{ .Release.Name }}-postgres{{ end }}
+  - Object storage (S3)           {{ if .Values.rustfs.enabled }}rustfs: {{ include "adrient.rustfsName" . }} (bucket {{ include "adrient.bucket" . }}){{ else }}EXTERNAL: {{ include "adrient.s3Endpoint" . }}{{ end }}{{ if .Values.minio.enabled }}
+  - Legacy MinIO (migration only) {{ include "adrient.minioName" . }}{{ end }}{{ if .Values.migrateFromMinio.enabled }}
+  - MinIO -> rustfs migration     kubectl -n {{ .Release.Namespace }} logs -f job/{{ .Release.Name }}-migrate-from-minio{{ end }}
+  - Auth (OIDC)                   {{ if eq .Values.auth.mode "bundled" }}bundled Zitadel: {{ .Release.Name }}-zitadel{{ else }}external issuer: {{ .Values.auth.external.issuer }}{{ end }}
+  - adrient app                     {{ .Release.Name }}-adrient  (image {{ include "adrient.image" . }})
+  {{- if .Values.bolo.enabled }}
+  - bolo-mp sidecar               enabled
+  {{- end }}
+  - Home Assistant                {{ if .Values.homeAssistant.enabled }}{{ include "adrient.haName" . }}{{ else }}disabled (homeAssistant.enabled=false){{ end }}
+
+Public URL:   {{ include "adrient.externalURL" . }}
+
+------------------------------------------------------------------------
+NEXT STEPS
+------------------------------------------------------------------------
+1) Watch everything come up:
+     kubectl get pods -n {{ .Release.Namespace }} -w
+
+{{- if eq .Values.ingress.type "none" }}
+
+2) No ingress configured (ingress.type=none). Reach adrient via port-forward:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-adrient 8080:{{ .Values.adrient.service.httpPort }}
+   then open http://localhost:8080  (health: http://localhost:8080/healthz)
+{{- else }}
+
+2) adrient is exposed via {{ .Values.ingress.type }} at:  {{ include "adrient.externalURL" . }}
+   Make sure {{ .Values.domain }} resolves to your ingress/gateway IP.
+{{- end }}
+
+{{- if eq .Values.auth.mode "bundled" }}
+
+3) OIDC auto-provisioning: the {{ .Release.Name }}-zitadel-provision Job creates
+   the adrient OIDC app and writes the {{ .Values.auth.clientSecretName }} secret.
+   Check it finished:
+     kubectl -n {{ .Release.Namespace }} logs job/{{ .Release.Name }}-zitadel-provision
+   adrient's pod stays NotReady until that secret holds a real client-id.
+
+   Default login (bundled Zitadel admin):
+     user:  {{ .Values.zitadel.admin.email }}
+     pass:  {{ .Values.zitadel.admin.password }}
+   (CHANGE these via zitadel.admin.* / zitadel.masterKey for anything real.)
+
+   IMPORTANT — browser login: adrient talks to Zitadel in-cluster, but the SSO
+   login PAGE is browser-facing. For a real end-to-end login, Zitadel must be
+   reachable by the browser at the SAME issuer URL adrient uses. See the chart
+   README ("Zitadel & real login") — the simplest path is auth.mode=external
+   pointed at a publicly-exposed Zitadel/OIDC issuer.
+{{- else }}
+
+3) Using external OIDC issuer: {{ .Values.auth.external.issuer }}
+   Ensure its redirect URI allowlist includes:
+     {{ include "adrient.oidcRedirectURL" . }}
+{{- end }}
+
+{{- if .Values.homeAssistant.enabled }}
+{{- $ha := .Values.homeAssistant }}
+{{- $secret := include "adrient.haOwnerSecret" . }}
+
+4) Home Assistant{{ if ne .Values.ingress.type "none" }} at {{ include "adrient.haURL" . }}{{ end }}
+{{- if eq .Values.ingress.type "none" }}
+   Reach it via port-forward:
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "adrient.haName" . }} 8123:{{ $ha.port }}
+{{- end }}
+{{- if $ha.onboarding.enabled }}
+   The chart onboards HA itself (no open "create owner" page); HA turns Ready
+   once the owner exists:
+     kubectl -n {{ .Release.Namespace }} logs {{ include "adrient.haName" . }}-0 -c onboard
+   Owner login:
+     user:  kubectl -n {{ .Release.Namespace }} get secret {{ $secret }} -o jsonpath='{.data.username}' | base64 -d
+     pass:  kubectl -n {{ .Release.Namespace }} get secret {{ $secret }} -o jsonpath='{.data.password}' | base64 -d
+   The sidecar also keeps HA's HTTP (reverse-proxy) settings promoted: HA
+   2026.9+ reverts http: config not confirmed within 5 minutes, which would
+   make HA answer 400 behind the ingress. It logs in with the Secret, so if
+   you change the owner's password in HA, update the Secret too.
+{{- else }}
+   homeAssistant.onboarding.enabled=false: open HA and create the owner
+   BEFORE exposing it; the first visitor otherwise becomes the owner.
+{{- end }}
+{{- if $ha.adrientIntegration.enabled }}
+   The "Adrient Workspace" integration is pre-installed from adrient on every HA
+   start. Add it in HA: Settings > Devices & services > Add integration >
+   Adrient Workspace, with URL {{ include "adrient.externalURL" . }} (or in-cluster
+   http://{{ .Release.Name }}-adrient.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.adrient.service.httpPort }})
+   and a Adrient API token (Adrient Settings > API tokens > "Connect Home
+   Assistant").
+{{- end }}
+{{- end }}
+
+Uninstall:  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }}
+            (PVCs and the kept OIDC secret survive; delete the ns to purge.)
+========================================================================

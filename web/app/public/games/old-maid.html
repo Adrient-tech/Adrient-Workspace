@@ -1,0 +1,1309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Old Maid</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, #1b5e3a, #0d3322);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    text-align: center;
+    padding: 8px 6px 4px;
+    flex: 0 0 auto;
+  }
+  h1 {
+    font-size: 1.5rem;
+    letter-spacing: 1px;
+    text-shadow: 0 2px 4px rgba(0,0,0,.4);
+  }
+  h1 .maid { color: #ffd34d; }
+  .subtitle { font-size: .72rem; opacity: .75; margin-top: 2px; }
+
+  .board {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 0;
+    padding: 4px;
+  }
+  .zone {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+  .zone-label {
+    font-size: .75rem;
+    font-weight: 600;
+    opacity: .9;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .count {
+    background: rgba(0,0,0,.35);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: .7rem;
+    font-weight: 700;
+  }
+  .hand {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 3px;
+    width: 100%;
+    max-width: 360px;
+    align-content: center;
+    min-height: 0;
+  }
+  .hand.opponent.active .card { cursor: pointer; }
+
+  /* Online N-player opponents */
+  .online-opps {
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    gap: 6px 8px;
+    min-height: 0;
+    padding: 2px 4px;
+    overflow: auto;
+  }
+  .opp {
+    flex: 0 1 auto;
+    min-width: 96px;
+    max-width: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    background: rgba(0,0,0,.22);
+    border: 2px solid transparent;
+    border-radius: 10px;
+    padding: 5px 8px;
+  }
+  .opp.turn-now {
+    border-color: #ffd34d;
+    box-shadow: 0 0 8px rgba(255,211,77,.4);
+  }
+  .opp.out { opacity: .45; filter: grayscale(.6); }
+  .opp .opp-nm {
+    font-size: .72rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .opp .opp-nm .count { font-size: .62rem; padding: 0 6px; }
+  .opp .opp-hand {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+    max-width: 100%;
+  }
+  .opp .card { width: 24px; height: 33px; border-radius: 4px; }
+  .opp .card.back::after { font-size: .8rem; }
+  .opp.drawable .opp-hand { cursor: pointer; }
+  .opp.drawable .card.back { animation: glow 1.6s ease-in-out infinite; }
+  .opp.drawable .card.back:active { transform: translateY(-4px) scale(1.06); }
+
+  .card {
+    width: 40px;
+    height: 54px;
+    border-radius: 6px;
+    position: relative;
+    flex: 0 0 auto;
+    font-weight: 700;
+    transition: transform .15s, box-shadow .15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.4);
+  }
+  .card.small { width: 31px; height: 44px; }
+
+  /* face down */
+  .card.back {
+    background:
+      repeating-linear-gradient(45deg, #2b4a8c 0 6px, #3a5fb0 6px 12px);
+    border: 1px solid #1c2f5c;
+  }
+  .card.back::after {
+    content: "?";
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,.55);
+    font-size: 1rem;
+  }
+  .hand.opponent.active .card.back:active {
+    transform: translateY(-6px) scale(1.05);
+    box-shadow: 0 6px 10px rgba(0,0,0,.5);
+  }
+  .hand.opponent.active .card.back {
+    animation: glow 1.6s ease-in-out infinite;
+  }
+  @keyframes glow {
+    0%,100% { box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+    50% { box-shadow: 0 0 8px 2px rgba(255,211,77,.55); }
+  }
+
+  /* face up */
+  .card.face {
+    background: #fdfdfd;
+    border: 1px solid #d8d8d8;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+  .card.face .char { font-size: 1.5rem; line-height: 1; }
+  .card.face.small .char { font-size: 1.15rem; }
+  .card.face .name {
+    font-size: .42rem;
+    margin-top: 2px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: .65;
+    letter-spacing: 0;
+  }
+  .card.face.small .name { display: none; }
+  .card.face.maid {
+    background: linear-gradient(160deg, #fff6d6, #ffe08a);
+    border-color: #d9af4a;
+    box-shadow: 0 0 6px 1px rgba(255,211,77,.5);
+  }
+  .card.face.maid .name { opacity: .85; color: #6b4a00; font-weight: 700; }
+
+  .card.dealt { animation: pop .25s ease; }
+  @keyframes pop {
+    from { transform: scale(.4); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .center {
+    flex: 0 0 auto;
+    text-align: center;
+    padding: 4px;
+  }
+  .log {
+    background: rgba(0,0,0,.3);
+    border-radius: 8px;
+    margin: 0 auto;
+    max-width: 340px;
+    min-height: 38px;
+    padding: 6px 10px;
+    font-size: .82rem;
+    line-height: 1.25;
+  }
+  .log .pairs { display: block; font-size: .72rem; opacity: .8; margin-top: 2px; }
+
+  footer {
+    flex: 0 0 auto;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    text-align: center;
+  }
+  button {
+    font: inherit;
+    font-weight: 700;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 22px;
+    background: #ffd34d;
+    color: #4a2e00;
+    box-shadow: 0 3px 0 #c79b1f;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #c79b1f; }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.72);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    padding: 20px;
+    text-align: center;
+  }
+  .overlay.show { display: flex; }
+  .overlay h2 { font-size: 2rem; margin-bottom: 10px; }
+  .overlay p { font-size: 1rem; opacity: .9; margin-bottom: 18px; max-width: 280px; }
+  .overlay .emoji { font-size: 3.4rem; margin-bottom: 8px; }
+  .overlay.win h2 { color: #7dffa3; }
+  .overlay.lose h2 { color: #ff8a8a; }
+
+  /* Mode-select buttons */
+  #modeOverlay .mode-btns {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    max-width: 260px;
+  }
+  #modeOverlay .mode-btns button { width: 100%; }
+
+  /* Privacy handoff overlay (2-player pass & play) — fully OPAQUE so the player
+     taking the device cannot glimpse the other hand underneath. Sits below the
+     injected top-right menu (z 2147483646). */
+  .handoff {
+    position: fixed; inset: 0; z-index: 2147483640;
+    background: #0d3322;
+    display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; gap: 18px;
+  }
+  .handoff.show { display: flex; }
+  .handoff h2 { font-size: 1.7rem; color: #ffd34d; }
+  .handoff p { font-size: .95rem; opacity: .9; max-width: 280px; line-height: 1.4; }
+  /* Slide-to-reveal: a deliberate gesture so the hand is never exposed by an
+     accidental tap during a handoff. Drag the handle all the way across. */
+  .reveal-track {
+    position: relative;
+    width: min(320px, 78vw);
+    height: 60px;
+    border-radius: 30px;
+    background: rgba(0,0,0,.35);
+    border: 1px solid rgba(255,211,77,.4);
+    overflow: hidden;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .reveal-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 56px;
+    background: #ffd34d;
+    border-radius: 30px;
+  }
+  .reveal-text {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 600 14px system-ui, sans-serif;
+    color: #ffe9a8;
+    letter-spacing: 1px;
+    pointer-events: none;
+    padding-left: 40px;
+  }
+  .reveal-handle {
+    position: absolute; left: 4px; top: 4px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: #ffd34d; color: #4a2e00;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    touch-action: none;
+  }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/old-maid.svg">
+    <link rel="manifest" href="/games/old-maid.webmanifest">
+    <meta name="theme-color" content="#BE185D">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Old Maid">
+    <link rel="apple-touch-icon" href="/games/icons/old-maid.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="old-maid",NAME="Old Maid",COLOR="#BE185D",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+  <header>
+    <h1>Old <span class="maid">Maid</span></h1>
+    <div class="subtitle">Match the characters — don't get stuck with the Old Maid! 👵</div>
+  </header>
+
+  <div class="board">
+    <div class="zone" id="cpuZone">
+      <div class="zone-label">CPU's hand <span class="count" id="cpuCount">0</span></div>
+      <div class="hand opponent" id="cpuHand"></div>
+    </div>
+
+    <!-- Online N-player opponents (each: name + face-down hand). Hidden in
+         local modes; shown only in online mode in place of the single CPU zone. -->
+    <div class="online-opps" id="onlineOpps" style="display:none"></div>
+
+    <div class="center">
+      <div class="log" id="log">Tap <b>New Game</b> to start!</div>
+    </div>
+
+    <div class="zone">
+      <div class="zone-label" id="youZoneLabel">Your hand <span class="count" id="youCount">0</span></div>
+      <div class="hand you" id="youHand"></div>
+    </div>
+  </div>
+
+  <footer>
+    <button id="newGame">New Game</button>
+  </footer>
+
+  <div class="overlay" id="overlay">
+    <div class="emoji" id="ovEmoji"></div>
+    <h2 id="ovTitle"></h2>
+    <p id="ovText"></p>
+    <button id="ovBtn">Play Again</button>
+  </div>
+
+  <!-- Mode-select overlay (shown on load) -->
+  <div class="overlay" id="modeOverlay">
+    <div class="emoji">👵</div>
+    <h2>Old Maid</h2>
+    <p>Choose a mode</p>
+    <div class="mode-btns">
+      <button id="modeAi">🤖 vs Computer</button>
+      <button id="modeTwo">👥 2 Players</button>
+    </div>
+  </div>
+
+  <!-- Privacy handoff overlay (2-player pass & play) -->
+  <div class="handoff" id="handoff">
+    <h2 id="handoffTitle">Pass the device</h2>
+    <p id="handoffSub"></p>
+    <div class="reveal-track" id="omRevealTrack">
+      <div class="reveal-fill" id="omRevealFill"></div>
+      <div class="reveal-text" id="omRevealText">slide to reveal</div>
+      <div class="reveal-handle" id="omRevealHandle">›</div>
+    </div>
+  </div>
+
+<script src="/games/game-multiplayer.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- Audio (WebAudio, no external resources) ----------
+  var actx = null;
+  function audio() {
+    if (!actx) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { actx = null; }
+    }
+    if (actx && actx.state === "suspended") actx.resume();
+    return actx;
+  }
+  function beep(freq, dur, type, vol) {
+    var a = audio();
+    if (!a) return;
+    var o = a.createOscillator();
+    var g = a.createGain();
+    o.type = type || "sine";
+    o.frequency.value = freq;
+    var now = a.currentTime;
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(vol || 0.18, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + (dur || 0.15));
+    o.connect(g); g.connect(a.destination);
+    o.start(now); o.stop(now + (dur || 0.15) + 0.02);
+  }
+  function sndDraw()  { beep(440, 0.10, "triangle", 0.16); }
+  function sndPair()  { beep(660, 0.10, "sine", 0.18); setTimeout(function(){ beep(880, 0.12, "sine", 0.18); }, 90); }
+  function sndWin()   { [523,659,784,1047].forEach(function(f,i){ setTimeout(function(){ beep(f,0.16,"triangle",0.2); }, i*130); }); }
+  function sndLose()  { [392,330,262].forEach(function(f,i){ setTimeout(function(){ beep(f,0.22,"sawtooth",0.16); }, i*170); }); }
+
+  // ---------- Characters ----------
+  // The deck is a cast of characters. Every character appears as a matching
+  // PAIR (two identical copies) — except the Old Maid, who is alone with no
+  // partner. Match two identical characters to discard them; whoever is stuck
+  // holding the lonely Old Maid at the end loses. (`key` is what pairs up.)
+  var CHARACTERS = [
+    { key: "dog",      emoji: "🐶", name: "Dog" },
+    { key: "cat",      emoji: "🐱", name: "Cat" },
+    { key: "bunny",    emoji: "🐰", name: "Bunny" },
+    { key: "fox",      emoji: "🦊", name: "Fox" },
+    { key: "bear",     emoji: "🐻", name: "Bear" },
+    { key: "panda",    emoji: "🐼", name: "Panda" },
+    { key: "koala",    emoji: "🐨", name: "Koala" },
+    { key: "tiger",    emoji: "🐯", name: "Tiger" },
+    { key: "lion",     emoji: "🦁", name: "Lion" },
+    { key: "frog",     emoji: "🐸", name: "Frog" },
+    { key: "monkey",   emoji: "🐵", name: "Monkey" },
+    { key: "pig",      emoji: "🐷", name: "Pig" },
+    { key: "chick",    emoji: "🐔", name: "Chicken" },
+    { key: "penguin",  emoji: "🐧", name: "Penguin" },
+    { key: "owl",      emoji: "🦉", name: "Owl" },
+    { key: "unicorn",  emoji: "🦄", name: "Unicorn" },
+    { key: "cow",      emoji: "🐮", name: "Cow" },
+    { key: "mouse",    emoji: "🐭", name: "Mouse" }
+  ];
+  var MAID = { key: "__maid", emoji: "👵", name: "Old Maid" };
+  var uid = 0;
+
+  function buildDeck() {
+    var deck = [];
+    for (var i = 0; i < CHARACTERS.length; i++) {
+      var c = CHARACTERS[i];
+      for (var n = 0; n < 2; n++) {
+        deck.push({ id: ++uid, key: c.key, emoji: c.emoji, name: c.name, isMaid: false });
+      }
+    }
+    // One lonely Old Maid — no partner to pair with.
+    deck.push({ id: ++uid, key: MAID.key, emoji: MAID.emoji, name: MAID.name, isMaid: true });
+    return deck; // 18 character pairs + 1 Old Maid = 37 cards
+  }
+
+  function shuffle(arr) {
+    for (var i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+
+  // Seeded PRNG + shuffle for the ONLINE deterministic deal: every client builds
+  // the identical deck and shuffles it with the SAME seed (broadcast by seat 0),
+  // so all clients agree on every hand without a server. (Hands are soft-hidden —
+  // a determined cheater could recompute the deal — acceptable for casual play.)
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function shuffleSeeded(arr,rng){for(var i=arr.length-1;i>0;i--){var j=Math.floor(rng()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+  // Remove all matched pairs from a hand. Returns array of discarded keys (one entry per pair).
+  function discardPairs(hand) {
+    var byRank = {};
+    for (var i = 0; i < hand.length; i++) {
+      var r = hand[i].key;
+      (byRank[r] = byRank[r] || []).push(hand[i]);
+    }
+    var discarded = [];
+    var keep = [];
+    for (var rank in byRank) {
+      if (!byRank.hasOwnProperty(rank)) continue;
+      var group = byRank[rank];
+      var pairs = Math.floor(group.length / 2);
+      for (var p = 0; p < pairs; p++) discarded.push(rank);
+      // keep the leftover (0 or 1 card)
+      if (group.length % 2 === 1) keep.push(group[group.length - 1]);
+    }
+    // rewrite hand in place
+    hand.length = 0;
+    for (var k = 0; k < keep.length; k++) hand.push(keep[k]);
+    return discarded;
+  }
+
+  // ---------- State ----------
+  // Two seats: "you" (Player 1 / bottom) and "cpu" (Player 2 / top).
+  // mode 'ai': "cpu" is the computer (auto-draws). mode '2p': "cpu" is a human
+  // (Player 2) — no AI, turns alternate between humans via a privacy handoff.
+  var mode = "ai";      // 'ai' | '2p' | 'online'   (DEFAULT 'ai' — must stay unchanged)
+  var you = [];
+  var cpu = [];
+  var youPairs = 0;
+  var cpuPairs = 0;
+  var turn = "you";     // "you" | "cpu" — the seat whose turn it is
+  // In 2p the device renders from the ACTIVE player's perspective; in ai mode
+  // it is always "you" (the human at the bottom).
+  var view = "you";     // "you" | "cpu" — whose perspective is on screen
+  var busy = false;     // lock input during animations / CPU turn / handoffs
+  var gameOver = false;
+
+  // ---------- Online N-player state ----------
+  // Every client tracks ALL hands as arrays (built identically from the seeded
+  // deal), so a broadcast draw {fromSeat, index} can be applied the same way on
+  // every device. mySeat 0 = host. turnSeat advances seat-order, skipping any
+  // seat that is already OUT (empty hand).
+  var onMySeat = 0;       // our seat (0..N-1)
+  var onN = 2;            // total players in the match
+  var onHands = [];       // onHands[seat] -> array of card objects (full deal)
+  var onTurn = 0;         // seat whose turn it is to draw
+  var onStarted = false;  // online match has begun
+  var onLoser = -1;       // seat stuck with the Old Maid (set at game over)
+  var onPeerLeft = false; // a peer dropped mid-match (rematch reopens the panel)
+
+  // In 2p both seats are human, so the seat to move is always human.
+  function isHumanTurn() { return mode === "2p" ? true : turn === "you"; }
+  // Display name for a seat. ai mode keeps the original "You"/"CPU" wording.
+  function sideName(seat) {
+    if (mode === "2p") return seat === "you" ? "Player 1" : "Player 2";
+    return seat === "you" ? "You" : "CPU";
+  }
+
+  // ---------- DOM ----------
+  var elCpuHand = document.getElementById("cpuHand");
+  var elYouHand = document.getElementById("youHand");
+  var elCpuCount = document.getElementById("cpuCount");
+  var elYouCount = document.getElementById("youCount");
+  var elLog = document.getElementById("log");
+  var elOverlay = document.getElementById("overlay");
+  var elOvTitle = document.getElementById("ovTitle");
+  var elOvText = document.getElementById("ovText");
+  var elOvEmoji = document.getElementById("ovEmoji");
+  var elModeOverlay = document.getElementById("modeOverlay");
+  var elHandoff = document.getElementById("handoff");
+  var elHandoffTitle = document.getElementById("handoffTitle");
+  var elHandoffSub = document.getElementById("handoffSub");
+  var elCpuZone = document.getElementById("cpuZone");
+  var elOnlineOpps = document.getElementById("onlineOpps");
+  var elYouZoneLabel = document.getElementById("youZoneLabel");
+  // Zone labels (text differs between ai and 2p modes).
+  var elCpuLabel = elCpuHand.parentNode.querySelector(".zone-label");
+  var elYouLabel = elYouHand.parentNode.querySelector(".zone-label");
+
+  function logMsg(html, pairsLine) {
+    elLog.innerHTML = html + (pairsLine ? '<span class="pairs">' + pairsLine + "</span>" : "");
+  }
+
+  function isMaid(card) { return !!card.isMaid; }
+
+  function makeFaceCard(card, small, animate) {
+    var d = document.createElement("div");
+    d.className = "card face" + (small ? " small" : "") + (animate ? " dealt" : "");
+    if (isMaid(card)) d.className += " maid";
+    var ch = document.createElement("span");
+    ch.className = "char";
+    ch.textContent = card.emoji;
+    var nm = document.createElement("span");
+    nm.className = "name";
+    nm.textContent = card.name;
+    d.appendChild(ch);
+    d.appendChild(nm);
+    return d;
+  }
+
+  function makeBackCard(small, index) {
+    var d = document.createElement("div");
+    d.className = "card back" + (small ? " small" : "");
+    d.dataset.index = index;
+    return d;
+  }
+
+  // Set a zone-label's leading text without clobbering its .count child.
+  function setLabelText(labelEl, text) {
+    if (labelEl.firstChild && labelEl.firstChild.nodeType === 3) {
+      labelEl.firstChild.nodeValue = text + " ";
+    }
+  }
+
+  // Render from the perspective of `view` (the active player in 2p, always
+  // "you" in ai mode). The viewer's OWN hand is face-up (so they can spot
+  // pairs); the OTHER seat's hand shows only face-down backs to pick from.
+  function render() {
+    // Map the two on-screen zones to seats based on the current viewer.
+    // The viewer always sits at the BOTTOM zone (their own face-up hand);
+    // the opponent occupies the TOP zone (face-down backs).
+    var ownSeat = view;                       // "you" | "cpu"
+    var oppSeat = view === "you" ? "cpu" : "you";
+    var ownArr = ownSeat === "you" ? you : cpu;
+    var oppArr = oppSeat === "you" ? you : cpu;
+
+    // Top zone = opponent (face down). Bottom zone = own (face up).
+    elCpuLabel && setLabelText(elCpuLabel, sideName(oppSeat) + "'s hand");
+    elYouLabel && setLabelText(elYouLabel, (mode === "2p" ? sideName(ownSeat) + "'s hand" : "Your hand"));
+    elCpuCount.textContent = oppArr.length;
+    elYouCount.textContent = ownArr.length;
+
+    // Opponent hand (TOP): face DOWN, tappable when it's the viewer's turn.
+    elCpuHand.innerHTML = "";
+    var oppSmall = oppArr.length > 9;
+    for (var i = 0; i < oppArr.length; i++) {
+      elCpuHand.appendChild(makeBackCard(oppSmall, i));
+    }
+    var canDraw = (turn === view && isHumanTurn() && !busy && !gameOver && oppArr.length > 0);
+    elCpuHand.classList.toggle("active", canDraw);
+
+    // Own hand (BOTTOM): face UP, sorted so pairs sit together.
+    elYouHand.innerHTML = "";
+    var ownSmall = ownArr.length > 9;
+    var sorted = ownArr.slice().sort(function (a, b) {
+      return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+    });
+    for (var j = 0; j < sorted.length; j++) {
+      elYouHand.appendChild(makeFaceCard(sorted[j], ownSmall, false));
+    }
+  }
+
+  // ---------- Privacy handoff (2-player only) ----------
+  // Full-screen OPAQUE gate between humans. Revealing requires a deliberate
+  // slide-all-the-way gesture, so an accidental tap can't expose the new hand.
+  function showHandoff(toName, subText, cb) {
+    elHandoffTitle.textContent = "Pass to " + toName;
+    elHandoffSub.textContent = subText;
+    elHandoff.classList.add("show");
+    initSlider(function () { elHandoff.classList.remove("show"); cb(); });
+  }
+
+  function initSlider(onReveal) {
+    var track  = document.getElementById("omRevealTrack");
+    var handle = document.getElementById("omRevealHandle");
+    var fill   = document.getElementById("omRevealFill");
+    var text   = document.getElementById("omRevealText");
+    var dragging = false, done = false, grabDX = 0, x = 0, maxX = 0, pid = null;
+
+    function layout(){ maxX = Math.max(0, track.clientWidth - handle.offsetWidth - 8); }
+    function paint(px){
+      x = Math.max(0, Math.min(maxX, px));
+      handle.style.left = (4 + x) + "px";
+      fill.style.width  = (handle.offsetWidth + 4 + x) + "px";
+      text.style.opacity = maxX ? String(Math.max(0, 1 - x / maxX)) : "1";
+    }
+    function animate(on){
+      handle.style.transition = on ? "left .2s" : "";
+      fill.style.transition   = on ? "width .2s" : "";
+    }
+    function releaseCapture(){
+      if(pid != null && track.releasePointerCapture){
+        try { track.releasePointerCapture(pid); } catch(_){}
+      }
+      pid = null;
+    }
+    function reset(){
+      animate(true); paint(0);
+      setTimeout(function(){ animate(false); }, 210);
+    }
+    function complete(){
+      done = true;
+      animate(true); paint(maxX);
+      setTimeout(onReveal, 190);
+    }
+    function ptX(e){ return e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0); }
+
+    // Bind the drag handlers to the track itself and capture the pointer on
+    // press, so every pointermove/up is delivered to the track even if the
+    // finger strays off it. Window listeners without capture could miss events
+    // on touch (the pointer gets retargeted or cancelled mid-drag), which left
+    // the handle stuck.
+    function down(e){
+      if(done) return;
+      layout();
+      dragging = true;
+      animate(false);
+      grabDX = ptX(e) - x;
+      pid = (e.pointerId != null) ? e.pointerId : null;
+      if(pid != null && track.setPointerCapture){
+        try { track.setPointerCapture(pid); } catch(_){}
+      }
+      e.preventDefault();
+    }
+    function move(e){
+      if(!dragging || done) return;
+      e.preventDefault();
+      paint(ptX(e) - grabDX);
+    }
+    function up(){
+      if(!dragging || done) return;
+      dragging = false;
+      releaseCapture();
+      if(x >= maxX - 4) complete(); else reset();
+    }
+
+    // Reset any prior state and (re)wire fresh handlers for this handoff.
+    done = false; dragging = false; pid = null;
+    layout(); animate(false); paint(0); text.style.opacity = "1";
+    track.onpointerdown   = down;
+    track.onpointermove   = move;
+    track.onpointerup     = up;
+    track.onpointercancel = up;
+  }
+
+  // ---------- Game flow ----------
+  function newGame() {
+    var deck = shuffle(buildDeck());
+    you = [];
+    cpu = [];
+    // deal alternately
+    for (var i = 0; i < deck.length; i++) {
+      if (i % 2 === 0) you.push(deck[i]);
+      else cpu.push(deck[i]);
+    }
+    youPairs = 0;
+    cpuPairs = 0;
+    gameOver = false;
+    busy = true;
+    turn = "you";
+    view = "you";
+    elOverlay.className = "overlay";
+
+    // initial discards
+    var yd = discardPairs(you);
+    var cd = discardPairs(cpu);
+    youPairs += yd.length;
+    cpuPairs += cd.length;
+
+    var pairsLine = "Starting pairs - " + sideName("you") + ": " + yd.length +
+                    " | " + sideName("cpu") + ": " + cd.length;
+    logMsg("Cards dealt! Pairs removed automatically. <b>" +
+      (mode === "2p" ? sideName("you") + "'s turn" : "Your turn") +
+      "</b> - tap a face-down card.", pairsLine);
+
+    render();
+    audio(); // unlock on the New Game tap
+    sndDraw();
+
+    setTimeout(function () {
+      busy = false;
+      render();
+      checkEnd(); // in case someone already emptied out (unlikely at start)
+    }, 350);
+  }
+
+  // The drawing player takes `card` from the source hand into their hand,
+  // then discards a pair if formed. Returns {paired:bool, rank:string}.
+  function takeCard(drawerHand, card) {
+    drawerHand.push(card);
+    // check if this character now forms a matching pair we can discard
+    var same = [];
+    for (var i = 0; i < drawerHand.length; i++) {
+      if (drawerHand[i].key === card.key) same.push(drawerHand[i]);
+    }
+    if (same.length >= 2) {
+      // remove two copies of that character (the just-drawn + one existing)
+      var removed = 0;
+      for (var k = drawerHand.length - 1; k >= 0 && removed < 2; k--) {
+        if (drawerHand[k].key === card.key) {
+          drawerHand.splice(k, 1);
+          removed++;
+        }
+      }
+      return { paired: true, key: card.key };
+    }
+    return { paired: false, key: card.key };
+  }
+
+  // The active human (turn === view) draws a face-down card at `index` from the
+  // opponent's hand (the TOP zone). Used in ai mode (human only) and 2p mode
+  // (both players). `index` is a position into the OPPONENT'S array.
+  function youDraw(index) {
+    if (busy || gameOver) return;
+    if (turn !== view || !isHumanTurn()) return;
+
+    var drawerArr = turn === "you" ? you : cpu;       // active player's hand
+    var sourceSeat = turn === "you" ? "cpu" : "you";  // opponent seat
+    var sourceArr = sourceSeat === "you" ? you : cpu;
+    if (index < 0 || index >= sourceArr.length) return;
+    busy = true;
+
+    var card = sourceArr.splice(index, 1)[0];
+    var res = takeCard(drawerArr, card);
+
+    // The drawer sees the card they pulled (it's now in their own face-up hand).
+    if (res.paired) {
+      if (turn === "you") youPairs++; else cpuPairs++;
+      sndPair();
+      logMsg("Drew the <b>" + card.emoji + " " + card.name + "</b> and matched a pair! 🎉");
+    } else {
+      sndDraw();
+      logMsg("Drew the <b>" + card.emoji + " " + card.name + "</b>." +
+        (isMaid(card) ? " Uh oh — that's the Old Maid! 👵" : ""));
+    }
+
+    render();
+
+    if (checkEnd()) return;
+
+    if (mode === "ai") {
+      // Hand the turn to the computer.
+      turn = "cpu";
+      render();
+      setTimeout(cpuTurn, 850);
+    } else {
+      // 2-player: pass to the other human behind a privacy handoff.
+      passToHuman();
+    }
+  }
+
+  // 2p turn pass: lock input, cover with the opaque slide-to-reveal overlay,
+  // then re-render for the NEW active player only after they slide to reveal.
+  function passToHuman() {
+    busy = true;              // input already locked; keep it locked
+    turn = turn === "you" ? "cpu" : "you";
+    var next = turn;
+    // Brief beat so the previous player sees the result, then cover the screen.
+    setTimeout(function () {
+      if (gameOver) return;
+      showHandoff(sideName(next), sideName(next) + ": your turn — draw a card!", function () {
+        view = next;          // switch perspective only after the slide completes
+        busy = false;
+        render();             // re-render for the new active player
+        logMsg("<b>" + sideName(next) + "'s turn</b> — tap a face-down card.");
+      });
+    }, 700);
+  }
+
+  function cpuTurn() {
+    if (gameOver) return;
+    if (you.length === 0) { checkEnd(); return; }
+    busy = true;
+
+    var index = Math.floor(Math.random() * you.length);
+    var card = you.splice(index, 1)[0];
+    var res = takeCard(cpu, card);
+
+    if (res.paired) {
+      cpuPairs++;
+      sndPair();
+      logMsg("CPU drew a card and matched a pair of <b>" + card.emoji + " " + card.name + "</b>.");
+    } else {
+      sndDraw();
+      logMsg("CPU drew one of your cards.");
+    }
+
+    render();
+
+    if (checkEnd()) return;
+
+    turn = "you";
+    busy = false;
+    // append turn prompt to the existing CPU message
+    elLog.innerHTML = elLog.innerHTML + ' <b>Your turn!</b>';
+    render();
+  }
+
+  // Game ends when only the lone Old Maid remains in play (one player has
+  // exactly the Old Maid and the other is empty).
+  function checkEnd() {
+    var total = you.length + cpu.length;
+    // Normal terminal state: exactly 1 card left total => it's the Old Maid.
+    if (total <= 1) {
+      gameOver = true;
+      busy = true;
+      // The seat still holding a card is stuck with the lonely Old Maid (the loser).
+      var loserSeat = you.length === 1 ? "you" : "cpu";
+      // Drop any privacy gate so the result is visible to both players.
+      elHandoff.classList.remove("show");
+      // Reveal from a neutral perspective (Player 1 / the human seat).
+      view = "you";
+      render();
+      finish(loserSeat);
+      return true;
+    }
+    return false;
+  }
+
+  function finish(loserSeat) {
+    var winnerSeat = loserSeat === "you" ? "cpu" : "you";
+    setTimeout(function () {
+      if (mode === "2p") {
+        // Name both: who's stuck with the Old Maid and who won.
+        sndWin();
+        elOverlay.className = "overlay show win";
+        elOvEmoji.textContent = "🎉";
+        elOvTitle.textContent = sideName(winnerSeat) + " Wins!";
+        elOvText.textContent = sideName(loserSeat) + " is stuck with the lonely Old Maid 👵!";
+        logMsg(sideName(loserSeat) + " held the Old Maid. " + sideName(winnerSeat) + " wins! 🎊");
+      } else if (loserSeat === "you") {
+        sndLose();
+        elOverlay.className = "overlay show lose";
+        elOvEmoji.textContent = "👵";
+        elOvTitle.textContent = "You're the Old Maid!";
+        elOvText.textContent = "You got stuck holding the lonely Old Maid. Better luck next time!";
+        logMsg("Game over - you held the Old Maid. 👵");
+      } else {
+        sndWin();
+        elOverlay.className = "overlay show win";
+        elOvEmoji.textContent = "🎉";
+        elOvTitle.textContent = "You Win!";
+        elOvText.textContent = "The CPU got stuck with the Old Maid 👵. Well played!";
+        logMsg("You win! The CPU is the Old Maid. 🎊");
+      }
+    }, 500);
+  }
+
+  // ---------- Input ----------
+  elCpuHand.addEventListener("click", function (ev) {
+    var t = ev.target;
+    while (t && t !== elCpuHand && !t.classList.contains("card")) t = t.parentNode;
+    if (!t || !t.classList || !t.classList.contains("card")) return;
+    if (!elCpuHand.classList.contains("active")) return;
+    var idx = parseInt(t.dataset.index, 10);
+    if (!isNaN(idx)) youDraw(idx);
+  });
+
+  // ========== ONLINE N-PLAYER (GameMP) ==========
+  // Netcode: seat 0 broadcasts {action:"start", seed}; every client builds the
+  // same character deck (buildDeck), shuffles it with mulberry32(seed), deals
+  // round-robin by seat, and auto-discards its own (and every) initial pair.
+  // On a turn, the active player picks a RANDOM index into the next still-in
+  // player's hand and broadcasts {action:"draw", seat, fromSeat, index}; every
+  // client applies that exact transfer + auto-pair, keeping all hands in sync.
+
+  // Next seat (after `seat`, wrapping) that still holds cards. Returns -1 if the
+  // only player left with cards is `seat` itself (terminal: they hold the Maid).
+  function onNextActive(seat) {
+    for (var i = 1; i <= onN; i++) {
+      var s = (seat + i) % onN;
+      if (onHands[s] && onHands[s].length > 0) return s;
+    }
+    return -1;
+  }
+  // How many seats still hold cards.
+  function onInCount() {
+    var n = 0;
+    for (var s = 0; s < onN; s++) if (onHands[s] && onHands[s].length > 0) n++;
+    return n;
+  }
+
+  // Apply matched pairs to every seat's hand (used after the deal and after each
+  // draw). Mutates onHands in place.
+  function onDiscardAllPairs() {
+    for (var s = 0; s < onN; s++) if (onHands[s]) discardPairs(onHands[s]);
+  }
+
+  // Build the identical deal on every client from the shared seed.
+  function onDeal(seed) {
+    uid = 0; // deterministic ids: deck built identically on all clients
+    var deck = shuffleSeeded(buildDeck(), mulberry32(seed >>> 0));
+    onHands = [];
+    for (var s = 0; s < onN; s++) onHands[s] = [];
+    for (var i = 0; i < deck.length; i++) onHands[i % onN].push(deck[i]);
+    onDiscardAllPairs();
+  }
+
+  // Advance the turn from `fromSeat` to the next still-in player. If only one
+  // player remains holding cards, that's the loser (stuck with the Old Maid).
+  // onNextActive already skips empty seats (including fromSeat, if it just
+  // emptied out — that player is safely OUT and won't be given a turn).
+  function onAdvanceTurn(fromSeat) {
+    if (onInCount() <= 1) {
+      var stuck = -1;
+      for (var s = 0; s < onN; s++) if (onHands[s] && onHands[s].length > 0) { stuck = s; break; }
+      onFinish(stuck);
+      return;
+    }
+    onTurn = onNextActive(fromSeat);
+    onRender();
+  }
+
+  // Perform a draw that some seat made from its left neighbour, then auto-pair.
+  // `drawer` draws card at `index` from `fromSeat`'s hand. Same on every client.
+  function onApplyDraw(drawer, fromSeat, index) {
+    var src = onHands[fromSeat], dst = onHands[drawer];
+    if (!src || !dst || index < 0 || index >= src.length) return null;
+    var card = src.splice(index, 1)[0];
+    var res = takeCard(dst, card); // pushes + discards a pair if formed
+    return { card: card, paired: res.paired };
+  }
+
+  function onStartMatch(seat, count) {
+    mode = "online";
+    onMySeat = seat;
+    onN = count;
+    onStarted = true;
+    gameOver = false;
+    onLoser = -1;
+    onPeerLeft = false;
+    busy = false;
+    elModeOverlay.className = "overlay";
+    elOverlay.className = "overlay";
+    // Swap the single-CPU zone for the multi-opponent strip.
+    elCpuZone.style.display = "none";
+    elOnlineOpps.style.display = "flex";
+    document.getElementById("newGame").style.display = "none"; // online uses rematch overlay
+    // Seat 0 (host) picks the seed and broadcasts the deal.
+    if (seat === 0) {
+      var seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+      onDeal(seed);
+      onTurn = 0;
+      GameMP.send({ action: "start", seat: 0, seed: seed });
+      onAfterDeal();
+    } else {
+      // Non-host waits for the start broadcast.
+      logMsg("Connected as Player " + (seat + 1) + " — waiting for the deal…");
+    }
+  }
+
+  function onAfterDeal() {
+    // If, after the auto-discard, the starting player already emptied out, skip.
+    if (onHands[onTurn] && onHands[onTurn].length === 0) onTurn = onNextActive(onTurn);
+    audio();
+    sndDraw();
+    if (onInCount() <= 1) { onAdvanceTurn(onTurn); return; }
+    onRender();
+  }
+
+  // The active player draws a card from the next still-in player (their "left").
+  function onYouDraw(fromSeat, indexInOpp) {
+    if (mode !== "online" || gameOver || busy) return;
+    if (onTurn !== onMySeat) return;
+    var src = onHands[fromSeat];
+    if (!src || indexInOpp < 0 || indexInOpp >= src.length) return;
+    busy = true;
+    GameMP.send({ action: "draw", seat: onMySeat, fromSeat: fromSeat, index: indexInOpp });
+    var r = onApplyDraw(onMySeat, fromSeat, indexInOpp);
+    if (r) {
+      if (r.paired) { sndPair(); logMsg("You drew the <b>" + r.card.emoji + " " + r.card.name + "</b> and matched a pair! 🎉"); }
+      else { sndDraw(); logMsg("You drew the <b>" + r.card.emoji + " " + r.card.name + "</b>." + (isMaid(r.card) ? " Uh oh — the Old Maid! 👵" : "")); }
+    }
+    onAdvanceTurn(onMySeat);
+    busy = false;
+  }
+
+  // Apply a remote player's draw (received over the wire).
+  function onRemoteDraw(m) {
+    if (mode !== "online" || gameOver) return;
+    var r = onApplyDraw(m.seat, m.fromSeat, m.index);
+    if (r) {
+      if (r.paired) { sndPair(); logMsg("Player " + (m.seat + 1) + " drew a card and matched a pair! 🎉"); }
+      else { sndDraw(); logMsg("Player " + (m.seat + 1) + " drew a card from Player " + (m.fromSeat + 1) + "."); }
+    }
+    onAdvanceTurn(m.seat);
+  }
+
+  function onFinish(loserSeat) {
+    gameOver = true;
+    busy = false;
+    onLoser = loserSeat;
+    onRender();
+    var iLost = loserSeat === onMySeat;
+    setTimeout(function () {
+      if (iLost) {
+        sndLose();
+        elOverlay.className = "overlay show lose";
+        elOvEmoji.textContent = "👵";
+        elOvTitle.textContent = "You're the Old Maid!";
+        elOvText.textContent = "You got stuck holding the lonely Old Maid. Better luck next time!";
+        logMsg("Game over — you held the Old Maid. 👵");
+      } else {
+        sndWin();
+        elOverlay.className = "overlay show win";
+        elOvEmoji.textContent = "🎉";
+        elOvTitle.textContent = "You Win!";
+        elOvText.textContent = "Player " + (loserSeat + 1) + " is stuck with the lonely Old Maid 👵!";
+        logMsg("Player " + (loserSeat + 1) + " held the Old Maid. You win! 🎊");
+      }
+      // Host-only rematch.
+      var btn = document.getElementById("ovBtn");
+      btn.textContent = "Rematch";
+      btn.style.display = onMySeat === 0 ? "" : "none";
+    }, 500);
+  }
+
+  function onHostRematch() {
+    if (onMySeat !== 0) return;
+    var seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+    gameOver = false; onLoser = -1;
+    onDeal(seed);
+    onTurn = 0;
+    elOverlay.className = "overlay";
+    GameMP.sendReset();
+    GameMP.send({ action: "start", seat: 0, seed: seed });
+    onAfterDeal();
+  }
+
+  // Render the online table: opponent strip (face-down backs + counts + turn /
+  // out markers) and your own face-up hand in the bottom zone.
+  function onRender() {
+    // Bottom zone = your face-up hand (reuse the existing youHand rendering).
+    var mine = onHands[onMySeat] || [];
+    var myOut = mine.length === 0;
+    setLabelText(elYouZoneLabel, myOut ? "You — safe! ✅" : "Your hand (Player " + (onMySeat + 1) + ")");
+    elYouCount.textContent = mine.length;
+    elYouHand.innerHTML = "";
+    var ownSmall = mine.length > 9;
+    var sorted = mine.slice().sort(function (a, b) { return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0); });
+    for (var j = 0; j < sorted.length; j++) elYouHand.appendChild(makeFaceCard(sorted[j], ownSmall, false));
+
+    // Opponent strip: one card per other seat (in seat order starting after me).
+    elOnlineOpps.innerHTML = "";
+    // The seat we may draw FROM this turn (only when it's our turn).
+    var drawTarget = (onTurn === onMySeat && !gameOver && !busy) ? onNextActive(onMySeat) : -1;
+    for (var k = 1; k < onN; k++) {
+      var s = (onMySeat + k) % onN;
+      var hand = onHands[s] || [];
+      var isOut = hand.length === 0;
+      var canDraw = (s === drawTarget);
+      var card = document.createElement("div");
+      card.className = "opp" + (onTurn === s && !gameOver ? " turn-now" : "") + (isOut ? " out" : "") + (canDraw ? " drawable" : "");
+      var nm = document.createElement("div"); nm.className = "opp-nm";
+      var label = document.createElement("span");
+      label.textContent = "Player " + (s + 1) + (isOut ? " ✅" : "") + (onLoser === s ? " 👵" : "");
+      var cnt = document.createElement("span"); cnt.className = "count"; cnt.textContent = hand.length;
+      nm.appendChild(label); nm.appendChild(cnt);
+      card.appendChild(nm);
+      var hd = document.createElement("div"); hd.className = "opp-hand";
+      hd.dataset.seat = s;
+      for (var c = 0; c < hand.length; c++) {
+        var b = makeBackCard(true, c);
+        hd.appendChild(b);
+      }
+      card.appendChild(hd);
+      elOnlineOpps.appendChild(card);
+    }
+
+    // Turn / status line shown beneath the latest action message.
+    if (!gameOver) {
+      var line;
+      if (onTurn === onMySeat) {
+        var tgt = onNextActive(onMySeat);
+        line = tgt >= 0 ? "Your turn — tap a face-down card from Player " + (tgt + 1) + "." : "Your turn…";
+      } else {
+        line = "Player " + (onTurn + 1) + "'s turn…";
+      }
+      // Keep the last action sentence (everything before any prior turn prompt)
+      // and re-append the fresh prompt as a sub-line.
+      var base = elLog.innerHTML.replace(/<span class="pairs">.*?<\/span>/, "");
+      logMsg(base, line);
+    }
+  }
+
+  // Click handler for the online opponent strip (draw from your left neighbour).
+  elOnlineOpps.addEventListener("click", function (ev) {
+    if (mode !== "online") return;
+    var t = ev.target;
+    while (t && t !== elOnlineOpps && !t.classList.contains("opp-hand")) t = t.parentNode;
+    if (!t || !t.classList || !t.classList.contains("opp-hand")) return;
+    var seat = parseInt(t.dataset.seat, 10);
+    if (isNaN(seat)) return;
+    if (onTurn !== onMySeat || gameOver || busy) return;
+    // You may only draw from the NEXT still-in player (your left).
+    if (seat !== onNextActive(onMySeat)) return;
+    var src = onHands[seat] || [];
+    if (!src.length) return;
+    // Pick a RANDOM index into the source hand (blind draw); broadcast it so
+    // every client applies the identical transfer.
+    var index = Math.floor(Math.random() * src.length);
+    onYouDraw(seat, index);
+  });
+
+  // ---------- Mode selection ----------
+  function showModeSelect() {
+    elModeOverlay.className = "overlay show";
+  }
+  function startMode(m) {
+    mode = m;
+    elModeOverlay.className = "overlay";
+    // Leaving online: restore the local layout.
+    onStarted = false;
+    elCpuZone.style.display = "";
+    elOnlineOpps.style.display = "none";
+    document.getElementById("newGame").style.display = "";
+    setLabelText(elYouZoneLabel, "Your hand");
+    newGame();
+  }
+
+  // "New Game" returns to the mode picker (switch AI / 2-player).
+  document.getElementById("newGame").addEventListener("click", showModeSelect);
+  // "Play Again" from the game-over overlay restarts the SAME mode (online =
+  // host-only rematch; local = restart the current local mode).
+  document.getElementById("ovBtn").addEventListener("click", function () {
+    if (mode !== "online") { newGame(); return; }
+    if (onPeerLeft) { onPeerLeft = false; GameMP.openCreate(); return; }
+    onHostRematch();
+  });
+  document.getElementById("modeAi").addEventListener("click", function () { startMode("ai"); });
+  document.getElementById("modeTwo").addEventListener("click", function () { startMode("2p"); });
+
+  // ---------- Online wiring (GameMP) ----------
+  // setup() injects a "🌐 Online Game" button after #modeTwo and (for 2–6
+  // players) renders the waiting room itself. We render no lobby UI here.
+  GameMP.setup({ gameName: "Old Maid", minPlayers: 2, maxPlayers: 6 });
+  GameMP.onReady(function (seat, count) { audio(); onStartMatch(seat, count); });
+  GameMP.onMove(function (m) {
+    if (!m) return;
+    if (m.action === "start") {
+      // Host's deal broadcast — every client builds the identical deal.
+      onDeal(m.seed);
+      onTurn = 0;
+      onAfterDeal();
+    } else if (m.action === "draw") {
+      onRemoteDraw(m);
+    }
+  });
+  GameMP.onReset(function () {
+    // Host pressed Rematch — wait for the accompanying "start" broadcast to deal.
+    gameOver = false; onLoser = -1;
+    elOverlay.className = "overlay";
+    logMsg("Rematch! Waiting for the deal…");
+  });
+  GameMP.onPeerLeft(function () {
+    // No host-authoritative server: a mid-match drop breaks the deterministic
+    // turn order, so end the match cleanly rather than stall.
+    if (!onStarted || gameOver) return;
+    gameOver = true;
+    busy = false;
+    onPeerLeft = true;
+    elOverlay.className = "overlay show lose";
+    elOvEmoji.textContent = "🔌";
+    elOvTitle.textContent = "Player left";
+    elOvText.textContent = "Someone disconnected, so this match can't continue. Start a new online game to play again.";
+    var btn = document.getElementById("ovBtn"); btn.textContent = "New game";
+    btn.style.display = "";
+  });
+
+  // Prevent gesture zoom / double-tap zoom leftovers
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+  document.addEventListener("dblclick", function (e) { e.preventDefault(); });
+
+  // Initial render (empty) behind the mode picker, then ask for a mode.
+  render();
+  showModeSelect();
+})();
+</script>
+</body>
+</html>

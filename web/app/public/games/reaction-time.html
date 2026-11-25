@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Reaction Time</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  body { display: flex; flex-direction: column; background: #111; }
+
+  header {
+    flex: 0 0 auto;
+    padding: 10px 12px calc(10px + env(safe-area-inset-top, 0px));
+    text-align: center;
+    color: #fff;
+    background: #1a1a1a;
+  }
+  header h1 { font-size: 20px; font-weight: 800; letter-spacing: 0.5px; }
+  header p { font-size: 12px; opacity: 0.7; margin-top: 2px; }
+
+  #stage {
+    flex: 1 1 auto;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.06s linear;
+    overflow: hidden;
+  }
+  #stage .big {
+    font-size: clamp(28px, 9vw, 64px);
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.15;
+    padding: 12px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  #stage .sub {
+    font-size: clamp(14px, 4.5vw, 22px);
+    font-weight: 600;
+    color: rgba(255,255,255,0.92);
+    margin-top: 10px;
+  }
+
+  /* states */
+  .state-idle  #stage { background: #2b3a67; }
+  .state-wait  #stage { background: #c0392b; }
+  .state-ready #stage { background: #27ae60; }
+  .state-result #stage { background: #2b3a67; }
+  .state-tooSoon #stage { background: #8e44ad; }
+
+  footer {
+    flex: 0 0 auto;
+    background: #1a1a1a;
+    color: #fff;
+    padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  }
+  .stats {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .stat { flex: 1; }
+  .stat .label { font-size: 11px; text-transform: uppercase; opacity: 0.6; letter-spacing: 0.5px; }
+  .stat .val { font-size: 22px; font-weight: 800; margin-top: 2px; }
+  .stat .val small { font-size: 12px; opacity: 0.7; font-weight: 600; }
+
+  .attempts {
+    text-align: center;
+    font-size: 12px;
+    opacity: 0.75;
+    min-height: 16px;
+    margin-bottom: 8px;
+  }
+
+  button#restart {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 800;
+    color: #fff;
+    background: #3d6cff;
+    border: none;
+    border-radius: 10px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button#restart:active { background: #2f55cc; }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/reaction-time.svg">
+    <link rel="manifest" href="/games/reaction-time.webmanifest">
+    <meta name="theme-color" content="#10B981">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Reaction Time">
+    <link rel="apple-touch-icon" href="/games/icons/reaction-time.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="reaction-time",NAME="Reaction Time",COLOR="#10B981",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body class="state-idle">
+  <header>
+    <h1>Reaction Time</h1>
+    <p>Tap when the screen turns <strong>green</strong>. Don't tap too soon!</p>
+  </header>
+
+  <div id="stage">
+    <div>
+      <div class="big" id="bigText">Tap to start</div>
+      <div class="sub" id="subText">Round of 5 tries</div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="stats">
+      <div class="stat"><div class="label">Last</div><div class="val" id="lastVal">—</div></div>
+      <div class="stat"><div class="label">Average</div><div class="val" id="avgVal">—</div></div>
+      <div class="stat"><div class="label">Best</div><div class="val" id="bestVal">—</div></div>
+    </div>
+    <div class="attempts" id="attempts">&nbsp;</div>
+    <button id="restart">Restart Round</button>
+  </footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var ROUND_SIZE = 5;
+  var MIN_DELAY = 1000;   // ms
+  var MAX_DELAY = 4000;   // ms
+
+  var body = document.body;
+  var stage = document.getElementById("stage");
+  var bigText = document.getElementById("bigText");
+  var subText = document.getElementById("subText");
+  var lastVal = document.getElementById("lastVal");
+  var avgVal = document.getElementById("avgVal");
+  var bestVal = document.getElementById("bestVal");
+  var attemptsEl = document.getElementById("attempts");
+  var restartBtn = document.getElementById("restart");
+
+  // state machine: idle -> wait -> ready -> result ; or wait -> tooSoon
+  var state = "idle";
+  var greenAt = 0;        // performance.now() when it went green
+  var waitTimer = null;
+  var attempts = [];      // ms times for this round
+  var best = null;        // best across all rounds (this session)
+
+  // ---- WebAudio (optional, created lazily) ----
+  var audioCtx = null;
+  function ensureAudio() {
+    if (audioCtx) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audioCtx = new AC();
+    } catch (e) { audioCtx = null; }
+  }
+  function beep(freq, durMs, type) {
+    if (!audioCtx) return;
+    try {
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      var now = audioCtx.currentTime;
+      var osc = audioCtx.createOscillator();
+      var gain = audioCtx.createGain();
+      osc.type = type || "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + durMs / 1000);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + durMs / 1000 + 0.02);
+    } catch (e) { /* ignore */ }
+  }
+
+  function setState(s) {
+    state = s;
+    body.className = "state-" + s;
+  }
+
+  function fmt(ms) {
+    return Math.round(ms) + " ms";
+  }
+
+  function clearWaitTimer() {
+    if (waitTimer !== null) {
+      clearTimeout(waitTimer);
+      waitTimer = null;
+    }
+  }
+
+  function updateStats() {
+    lastVal.textContent = attempts.length ? fmt(attempts[attempts.length - 1]) : "—";
+    if (attempts.length) {
+      var sum = 0;
+      for (var i = 0; i < attempts.length; i++) sum += attempts[i];
+      avgVal.textContent = fmt(sum / attempts.length);
+    } else {
+      avgVal.textContent = "—";
+    }
+    bestVal.textContent = (best !== null) ? fmt(best) : "—";
+
+    if (attempts.length) {
+      var parts = [];
+      for (var j = 0; j < attempts.length; j++) parts.push(Math.round(attempts[j]));
+      attemptsEl.textContent = "Tries: " + parts.join(" · ") + " ms";
+    } else {
+      attemptsEl.innerHTML = "&nbsp;";
+    }
+  }
+
+  // Begin one attempt: show red "wait", schedule green.
+  function startAttempt() {
+    clearWaitTimer();
+    setState("wait");
+    bigText.textContent = "Wait for green…";
+    subText.textContent = "Attempt " + (attempts.length + 1) + " of " + ROUND_SIZE;
+
+    var delay = MIN_DELAY + Math.random() * (MAX_DELAY - MIN_DELAY);
+    waitTimer = setTimeout(function () {
+      waitTimer = null;
+      if (state !== "wait") return; // safety
+      setState("ready");
+      greenAt = (window.performance && performance.now) ? performance.now() : Date.now();
+      bigText.textContent = "TAP!";
+      subText.textContent = "";
+      beep(880, 120, "square");
+    }, delay);
+  }
+
+  function recordReaction() {
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    var rt = now - greenAt;
+    attempts.push(rt);
+    if (best === null || rt < best) best = rt;
+
+    setState("result");
+    bigText.textContent = fmt(rt);
+    if (attempts.length >= ROUND_SIZE) {
+      subText.textContent = "Round done! Tap to play again.";
+    } else {
+      subText.textContent = "Tap to continue (" + attempts.length + "/" + ROUND_SIZE + ")";
+    }
+    updateStats();
+    beep(rt < 250 ? 1200 : 660, 140, "sine");
+  }
+
+  function tooSoon() {
+    clearWaitTimer();
+    setState("tooSoon");
+    bigText.textContent = "Too soon!";
+    subText.textContent = "Tap to try this attempt again.";
+    beep(160, 220, "sawtooth");
+  }
+
+  // Main interaction handler.
+  function handlePress() {
+    ensureAudio();
+    switch (state) {
+      case "idle":
+        startAttempt();
+        break;
+      case "wait":
+        tooSoon();
+        break;
+      case "ready":
+        recordReaction();
+        break;
+      case "tooSoon":
+        // retry the same attempt
+        startAttempt();
+        break;
+      case "result":
+        if (attempts.length >= ROUND_SIZE) {
+          // start a fresh round
+          attempts = [];
+          updateStats();
+          startAttempt();
+        } else {
+          startAttempt();
+        }
+        break;
+    }
+  }
+
+  function fullRestart() {
+    clearWaitTimer();
+    attempts = [];
+    updateStats();
+    setState("idle");
+    bigText.textContent = "Tap to start";
+    subText.textContent = "Round of " + ROUND_SIZE + " tries";
+  }
+
+  // ---- Events ----
+  // Use pointer/touch for the stage; guard against double-fire.
+  function onStagePress(e) {
+    // Ignore presses that originate on the restart button (footer is separate, so safe)
+    e.preventDefault();
+    handlePress();
+  }
+
+  if (window.PointerEvent) {
+    stage.addEventListener("pointerdown", onStagePress, { passive: false });
+  } else {
+    stage.addEventListener("touchstart", onStagePress, { passive: false });
+    stage.addEventListener("mousedown", onStagePress, { passive: false });
+  }
+
+  restartBtn.addEventListener("click", function (e) {
+    e.preventDefault();
+    ensureAudio();
+    fullRestart();
+  });
+
+  // Desktop: Space or Enter triggers the stage.
+  window.addEventListener("keydown", function (e) {
+    if (e.code === "Space" || e.key === " " || e.code === "Enter" || e.key === "Enter") {
+      // don't double-trigger when focus is on the restart button + Enter
+      if (document.activeElement === restartBtn) return;
+      e.preventDefault();
+      ensureAudio();
+      handlePress();
+    }
+  });
+
+  // Prevent context menu long-press popup on mobile.
+  stage.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  updateStats();
+})();
+</script>
+</body>
+</html>

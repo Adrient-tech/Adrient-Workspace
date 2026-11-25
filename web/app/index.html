@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Adrient Workspace</title>
+    <meta name="description" content="Your own workspace. Your data. Your infrastructure." />
+    <!-- Default link-preview (Open Graph) tags; the server injects route-aware
+         overrides per request (see internal/server/og.go). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Adrient Workspace" />
+    <meta property="og:title" content="Adrient Workspace" />
+    <meta property="og:description" content="Your own workspace. Your data. Your infrastructure." />
+    <meta property="og:image" content="/adrient-og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- PWA: installable + offline-capable on phones -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#126C5A" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Adrient" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <style>
+      #pre-splash{position:fixed;inset:0;z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#fff;color:#555e5c;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;transition:opacity .25s ease}
+      #pre-splash.out{opacity:0;pointer-events:none}
+      #pre-splash img{width:72px;height:72px;padding:8px;box-sizing:border-box;background:#fff;border-radius:18px;box-shadow:0 0 0 1px rgba(18,108,90,.14)}
+      #pre-splash b{font-weight:600;font-size:18px}
+      #pre-splash .bar{position:relative;width:160px;height:3px;border-radius:2px;overflow:hidden;background:rgba(18,108,90,.15)}
+      #pre-splash .bar i{position:absolute;top:0;bottom:0;border-radius:2px;background:#126C5A;animation:pre-splash-bar 1.3s ease-in-out infinite}
+      @keyframes pre-splash-bar{0%{left:-40%;width:40%}50%{left:30%;width:50%}100%{left:100%;width:40%}}
+      @media (prefers-color-scheme:dark){#pre-splash{background:#0b0d0e;color:#b8c2bf}}
+      @media (prefers-reduced-motion:reduce){#pre-splash{transition:none}#pre-splash .bar i{animation:none;left:0;width:100%;opacity:.6}}
+    </style>
+  </head>
+  <body>
+    <div id="pre-splash" role="status" aria-label="Loading"><img src="/adrient-mark.png" alt="" /><b>Adrient Workspace</b><div class="bar"><i></i></div></div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

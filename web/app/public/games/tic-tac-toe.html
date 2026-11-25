@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Tic-Tac-Toe AI</title>
+    <style>
+        :root {
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --accent-x: #3b82f6;
+            --accent-o: #ef4444;
+            --win-bg: #dcfce7;
+            --win-border: #22c55e;
+            --cell-size: min(100px, 24vw);
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            text-align: center;
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 1.5rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            margin: 0 0 0.5rem 0;
+            font-size: 2rem;
+        }
+
+        #status {
+            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            height: 1.5rem;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(3, var(--cell-size));
+            grid-template-rows: repeat(3, var(--cell-size));
+            gap: 10px;
+            margin-bottom: 1.5rem;
+        }
+
+        .cell {
+            width: var(--cell-size);
+            height: var(--cell-size);
+            background: var(--bg-color);
+            border: 2px solid var(--border-color);
+            border-radius: 0.75rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .cell:hover:not(.taken) {
+            background: #f1f5f9;
+            transform: scale(1.02);
+        }
+
+        .cell.taken {
+            cursor: default;
+        }
+
+        .cell.x { color: var(--accent-x); }
+        .cell.o { color: var(--accent-o); }
+
+        .cell.winner {
+            background-color: var(--win-bg);
+            border-color: var(--win-border);
+            animation: pulse 1s infinite alternate;
+        }
+
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.05); }
+        }
+
+        button {
+            background-color: var(--text-main);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .mode-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .mode-overlay.show { display: flex; }
+        .mode-modal {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 1.5rem;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+            max-width: 80vw;
+        }
+        .mode-modal h2 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+        .mode-modal p { margin: 0 0 1.25rem; color: var(--text-muted); }
+        .mode-modal .mode-btns { display: flex; flex-direction: column; gap: 0.75rem; }
+    </style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/tic-tac-toe.svg">
+    <link rel="manifest" href="/games/tic-tac-toe.webmanifest">
+    <meta name="theme-color" content="#EC407A">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Tic-Tac-Toe">
+    <link rel="apple-touch-icon" href="/games/icons/tic-tac-toe.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="tic-tac-toe",NAME="Tic-Tac-Toe",COLOR="#EC407A",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+
+<div class="container">
+    <h1>Tic-Tac-Toe</h1>
+    <div id="status">Your turn (X)</div>
+    
+    <div class="board" id="board">
+        <div class="cell" data-index="0"></div>
+        <div class="cell" data-index="1"></div>
+        <div class="cell" data-index="2"></div>
+        <div class="cell" data-index="3"></div>
+        <div class="cell" data-index="4"></div>
+        <div class="cell" data-index="5"></div>
+        <div class="cell" data-index="6"></div>
+        <div class="cell" data-index="7"></div>
+        <div class="cell" data-index="8"></div>
+    </div>
+
+    <button id="resetBtn">Reset Game</button>
+</div>
+
+<div id="modeOverlay" class="mode-overlay">
+    <div class="mode-modal">
+        <h2>Tic-Tac-Toe</h2>
+        <p>Choose a mode</p>
+        <div class="mode-btns">
+            <button id="modeAi">🤖 vs Computer</button>
+            <button id="modeTwo">👥 2 Players</button>
+        </div>
+    </div>
+</div>
+
+<script src="/games/game-multiplayer.js?v=2"></script>
+<script>
+    const boardElement = document.getElementById('board');
+    const cells = document.querySelectorAll('.cell');
+    const statusDisplay = document.getElementById('status');
+    const resetBtn = document.getElementById('resetBtn');
+
+    const modeOverlay = document.getElementById('modeOverlay');
+
+    let board = ['', '', '', '', '', '', '', '', ''];
+    let gameActive = true;
+    const HUMAN = 'X';
+    const AI = 'O';
+    let mode = 'ai';            // 'ai' = vs computer, '2p' = pass-and-play, 'online'
+    let currentPlayer = HUMAN;  // whose turn it is (X always starts)
+    let mySide = HUMAN;         // in online mode, which side you control
+
+    // In 2p both sides are human; in ai only X is human; online = your side only.
+    function isHumanTurn() {
+        if (mode === 'online') return currentPlayer === mySide;
+        return mode === '2p' ? true : currentPlayer === HUMAN;
+    }
+    function sideName(side) {
+        if (mode === '2p') return side === HUMAN ? 'Player 1 (X)' : 'Player 2 (O)';
+        return side === HUMAN ? 'You' : 'Computer';
+    }
+    function turnText() {
+        if (mode === 'online') return currentPlayer === mySide ? 'Your turn (' + mySide + ')' : "Opponent's turn (" + currentPlayer + ')';
+        if (mode === '2p') return sideName(currentPlayer) + "'s turn";
+        return currentPlayer === HUMAN ? 'Your turn (X)' : "Computer's turn (O)";
+    }
+
+    const winConditions = [
+        [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+        [0, 3, 6], [1, 4, 7], [2, 5, 8], // Cols
+        [0, 4, 8], [2, 4, 6]             // Diagonals
+    ];
+
+    function handleCellClick(e) {
+        const clickedCell = e.target;
+        const index = parseInt(clickedCell.getAttribute('data-index'));
+
+        if (board[index] !== '' || !gameActive || !isHumanTurn()) return;
+
+        const placed = currentPlayer;
+        makeMove(index, placed);
+        if (mode === 'online') GameMP.send({ index: index, player: placed });
+
+        if (gameActive && mode === 'ai' && currentPlayer === AI) {
+            statusDisplay.innerText = "Computer is thinking...";
+            setTimeout(aiMove, 400);
+        }
+    }
+
+    function makeMove(index, player) {
+        board[index] = player;
+        cells[index].innerText = player;
+        cells[index].classList.add('taken', player.toLowerCase());
+
+        const winResult = checkWinner(board);
+        if (winResult) {
+            endGame(winResult);
+        } else if (board.every(cell => cell !== '')) {
+            endGame('draw');
+        } else {
+            currentPlayer = player === HUMAN ? AI : HUMAN;
+            statusDisplay.innerText = turnText();
+        }
+    }
+
+    function aiMove() {
+        if (!gameActive || mode !== 'ai') return;
+        let bestScore = -Infinity;
+        let move;
+
+        for (let i = 0; i < 9; i++) {
+            if (board[i] === '') {
+                board[i] = AI;
+                let score = minimax(board, 0, false);
+                board[i] = '';
+                if (score > bestScore) {
+                    bestScore = score;
+                    move = i;
+                }
+            }
+        }
+        makeMove(move, AI);
+    }
+
+    function minimax(currentBoard, depth, isMaximizing) {
+        const result = checkWinner(currentBoard);
+        if (result && result.winner === AI) return 10 - depth;
+        if (result && result.winner === HUMAN) return depth - 10;
+        if (currentBoard.every(cell => cell !== '')) return 0;
+
+        if (isMaximizing) {
+            let bestScore = -Infinity;
+            for (let i = 0; i < 9; i++) {
+                if (currentBoard[i] === '') {
+                    currentBoard[i] = AI;
+                    let score = minimax(currentBoard, depth + 1, false);
+                    currentBoard[i] = '';
+                    bestScore = Math.max(score, bestScore);
+                }
+            }
+            return bestScore;
+        } else {
+            let bestScore = Infinity;
+            for (let i = 0; i < 9; i++) {
+                if (currentBoard[i] === '') {
+                    currentBoard[i] = HUMAN;
+                    let score = minimax(currentBoard, depth + 1, true);
+                    currentBoard[i] = '';
+                    bestScore = Math.min(score, bestScore);
+                }
+            }
+            return bestScore;
+        }
+    }
+
+    function checkWinner(currentBoard) {
+        for (let condition of winConditions) {
+            const [a, b, c] = condition;
+            if (currentBoard[a] && currentBoard[a] === currentBoard[b] && currentBoard[a] === currentBoard[c]) {
+                return { winner: currentBoard[a], line: condition };
+            }
+        }
+        return null;
+    }
+
+    function endGame(result) {
+        gameActive = false;
+        if (result === 'draw') {
+            statusDisplay.innerText = "It's a Draw!";
+        } else {
+            if (mode === 'online') statusDisplay.innerText = result.winner === mySide ? "You Win!" : "Opponent Wins!";
+            else if (mode === '2p') statusDisplay.innerText = sideName(result.winner) + " Wins!";
+            else statusDisplay.innerText = result.winner === HUMAN ? "You Win!" : "Computer Wins!";
+            result.line.forEach(index => {
+                cells[index].classList.add('winner');
+            });
+        }
+    }
+
+    function resetGame() {
+        board = ['', '', '', '', '', '', '', '', ''];
+        gameActive = true;
+        currentPlayer = HUMAN;
+        cells.forEach(cell => {
+            cell.innerText = '';
+            cell.className = 'cell';
+        });
+        statusDisplay.innerText = turnText();
+    }
+
+    cells.forEach(cell => cell.addEventListener('click', handleCellClick));
+    resetBtn.addEventListener('click', () => { resetGame(); if (mode === 'online') GameMP.sendReset(); });
+
+    // ---- Online multiplayer (shared drop-in module) ----
+    if (window.GameMP) {
+        GameMP.setup({ gameName: 'Tic-Tac-Toe' });
+        GameMP.onReady((r) => {
+            mode = 'online';
+            mySide = r === 0 ? 'X' : 'O';   // host is X (goes first), guest is O
+            if (modeOverlay) modeOverlay.style.display = 'none';
+            resetGame();
+        });
+        GameMP.onMove((m) => {
+            if (mode === 'online' && gameActive && board[m.index] === '' && m.player !== mySide) makeMove(m.index, m.player);
+        });
+        GameMP.onReset(() => resetGame());
+        GameMP.onPeerLeft(() => { if (mode === 'online') { gameActive = false; statusDisplay.innerText = 'Opponent left the game.'; } });
+    }
+
+</script>
+
+</body>
+</html>

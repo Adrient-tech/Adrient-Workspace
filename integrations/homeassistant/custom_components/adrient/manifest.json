@@ -1,0 +1,14 @@
+{
+  "domain": "adrient",
+  "name": "Adrient Workspace",
+  "codeowners": [],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://adrient.com/docs/adrient-workspace/docs/services/homeassistant.md",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://adrient.com/support",
+  "loggers": ["custom_components.adrient"],
+  "requirements": [],
+  "version": "0.4.0"
+}

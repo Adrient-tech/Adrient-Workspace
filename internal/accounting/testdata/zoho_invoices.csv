@@ -1,0 +1,5 @@
+Invoice Date,Invoice Number,Customer Name,Due Date,Total,Balance,Currency Code,Invoice Status,Item Tax
+2026-03-05,INV-000101,Acme Traders,2026-04-04,11800.00,11800.00,INR,Sent,1800.00
+2026-03-10,INV-000102,Globex,2026-04-09,5900.00,0.00,INR,Paid,900.00
+2026-03-12,INV-000103,Initech,2026-04-11,1000.00,1000.00,INR,Draft,0
+05/03/2026,INV-000104,Bad Total,2026-04-04,abc,0,INR,Sent,0

@@ -1,0 +1,71 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Adrient Workspace",
+        "description": "Create a token in Adrient under Settings > API tokens with the \"Connect Home Assistant\" preset, then paste it here.",
+        "data": {
+          "url": "Adrient URL",
+          "token": "API token"
+        },
+        "data_description": {
+          "url": "The address you open Adrient at, for example https://adrient.example.com.",
+          "token": "A personal access token starting with grw_."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Adrient token rejected",
+        "description": "Adrient at {url} no longer accepts the token for {name}. Create a new token with the \"Connect Home Assistant\" preset and paste it here.",
+        "data": {
+          "token": "API token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Adrient Workspace",
+        "description": "Change the Adrient URL. Leave the token empty to keep the current one.",
+        "data": {
+          "url": "Adrient URL",
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Adrient. Check the URL and that Home Assistant can reach it.",
+      "invalid_auth": "Adrient rejected the token. Make sure it is valid and has the Home Assistant scopes.",
+      "invalid_url": "Enter a full http:// or https:// URL.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This Adrient account is already configured.",
+      "reauth_successful": "Re-authentication was successful.",
+      "reconfigure_successful": "Re-configuration was successful.",
+      "wrong_account": "That token belongs to a different Adrient account."
+    }
+  },
+  "entity": {
+    "calendar": {
+      "calendar": {
+        "name": "Calendar"
+      }
+    },
+    "notify": {
+      "notifications": {
+        "name": "Notifications"
+      }
+    },
+    "sensor": {
+      "unread_notifications": {
+        "name": "Unread notifications",
+        "unit_of_measurement": "notifications"
+      },
+      "open_tasks": {
+        "name": "Open tasks",
+        "unit_of_measurement": "tasks"
+      },
+      "overdue_tasks": {
+        "name": "Overdue tasks",
+        "unit_of_measurement": "tasks"
+      }
+    }
+  }
+}

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Mighty Mike (web demo)</title>
+<!-- PWA installability (own icon = Mighty Mike's face) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#C2410C">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Mighty Mike">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(function(){})})}</script>
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  /* The SDL canvas; scale to fit the viewport, keep pixels crisp, letterbox. */
+  #canvas{max-width:100vw;max-height:100vh;width:auto;height:auto;
+    image-rendering:pixelated;image-rendering:crisp-edges;background:#000;outline:none;display:block;}
+  #status{position:fixed;left:0;right:0;top:42%;text-align:center;color:#9ab;
+    font:600 15px system-ui,sans-serif;z-index:5;}
+  #credit{position:fixed;left:0;bottom:2px;width:100%;text-align:center;color:#456;
+    font:500 10px system-ui,sans-serif;z-index:2147483000;pointer-events:none;}
+  /* Landscape nudge: Mighty Mike is a wide-screen game, so on small touch
+     devices held upright we cover the screen with a "rotate to landscape"
+     prompt until the device is turned. Hidden on desktop and in landscape. */
+  #rotate{display:none;}
+  @media (orientation:portrait) and (pointer:coarse){
+    #rotate{display:flex;position:fixed;inset:0;z-index:2147483100;
+      flex-direction:column;align-items:center;justify-content:center;gap:18px;
+      background:#000;color:#cde;font:600 17px system-ui,sans-serif;text-align:center;padding:24px;}
+    #rotate .phone{width:64px;height:104px;border:3px solid #cde;border-radius:12px;
+      animation:rot 1.8s ease-in-out infinite;}
+    #wrap,#status{visibility:hidden;}
+  }
+  @keyframes rot{0%,40%{transform:rotate(0)}70%,100%{transform:rotate(-90deg)}}
+</style>
+</head>
+<body>
+  <div id="wrap"><canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas></div>
+  <div id="rotate" role="alert">
+    <div class="phone" aria-hidden="true"></div>
+    <div>Rotate your device to landscape<br>to play Mighty Mike</div>
+  </div>
+  <div id="status">Loading Mighty Mike…</div>
+  <div id="credit">Mighty Mike © 1995–2000 Pangea Software · web port of jorio/MightyMike (CC BY-NC-SA 4.0)</div>
+
+  <script>
+    var statusEl = document.getElementById("status");
+    var Module = {
+      canvas: (function(){
+        var c = document.getElementById("canvas");
+        // Surface WebGL context-loss so we notice it during testing.
+        c.addEventListener("webglcontextlost", function(e){ e.preventDefault(); console.error("WebGL context lost"); }, false);
+        return c;
+      })(),
+      setStatus: function(t){ if(statusEl) statusEl.textContent = t || ""; if(!t && statusEl){ statusEl.style.display="none"; } },
+      print:   function(t){ console.log(t); },
+      printErr:function(t){ console.error(t); },
+      onRuntimeInitialized: function(){ Module.setStatus(""); },
+      // Saved games + prefs live in $HOME/.config (the game DirCreates a
+      // "MightyMike" folder there). In the browser that path doesn't exist and
+      // isn't persistent, so saving fails ("Cannot Create Player Save File").
+      // Mount IDBFS at .config so the folder exists AND survives reloads, and
+      // load any prior saves from IndexedDB before the game starts.
+      preRun: [function(){
+        try {
+          FS.mkdirTree("/home/web_user/.config");
+          FS.mount(IDBFS, {}, "/home/web_user/.config");
+          addRunDependency("mm-syncfs");
+          FS.syncfs(true, function(err){
+            if (err) console.error("MightyMike: load saves failed", err);
+            removeRunDependency("mm-syncfs");
+          });
+        } catch (e) { console.error("MightyMike: save FS setup failed", e); }
+      }],
+    };
+    // Flush saves to IndexedDB. The game gives no save callback, so persist on
+    // tab-hide/close and on a gentle interval (saves are infrequent).
+    function mmPersistSaves(){
+      try { if (typeof FS !== "undefined") FS.syncfs(false, function(){}); } catch (e) {}
+    }
+    document.addEventListener("visibilitychange", function(){ if (document.hidden) mmPersistSaves(); });
+    window.addEventListener("pagehide", mmPersistSaves);
+    setInterval(mmPersistSaves, 15000);
+    // Keep focus on the canvas so SDL receives keyboard events.
+    window.addEventListener("load", function(){ Module.canvas.focus(); });
+    window.addEventListener("click", function(){ Module.canvas.focus(); });
+  </script>
+
+  <!-- Touch gamepad overlay → synthesizes the game's real key bindings.
+       The ?v= version busts Cloudflare's 4h edge cache on each change —
+       play.html itself is served fresh (not edge-cached), so bumping this
+       token guarantees the new overlay is fetched. Bump it on every edit. -->
+  <script src="gamepad-overlay.js?v=20260613-zone"></script>
+  <script>
+    window.addEventListener("load", function(){
+      if (!window.GamepadOverlay) return;
+      GamepadOverlay.mount({
+        target: window,           // SDL3/emscripten listens for keys on window
+        show: "always",           // visible on desktop too (handy for testing)
+        dpad: { up:"ArrowUp", down:"ArrowDown", left:"ArrowLeft", right:"ArrowRight" },
+        buttons: [
+          { id:"attack", label:"●", code:"Space",     side:"right" }, // Attack
+          { id:"weapon", label:"⇄", code:"ShiftLeft", side:"right" }, // Next weapon
+          { id:"radar",  label:"R", code:"KeyR",      side:"right" }, // Radar
+          { id:"pause",  label:"≡", code:"Escape",    side:"top"   }, // Pause
+        ],
+        // The overlay adds a control-mode switcher (D-Pad / Joystick) to the
+        // top bar, left of Pause. (The old ▶/Enter button was replaced by it.)
+      });
+    });
+  </script>
+
+  <script>
+    // Best-effort orientation lock to landscape. This only succeeds in a
+    // fullscreen / installed-PWA context (and on browsers that support it); it
+    // throws otherwise, so we swallow the error and rely on the CSS #rotate
+    // prompt to ask the player to turn their device.
+    (function(){
+      function tryLock(){
+        try {
+          var o = screen.orientation;
+          if (o && typeof o.lock === "function") { o.lock("landscape").catch(function(){}); }
+        } catch (e) { /* not allowed outside fullscreen — the prompt handles it */ }
+      }
+      window.addEventListener("load", tryLock);
+      // Retry after the first touch (some browsers only allow it post-gesture).
+      window.addEventListener("touchend", tryLock, { once:true });
+    })();
+  </script>
+
+  <script async src="MightyMike.js"></script>
+</body>
+</html>

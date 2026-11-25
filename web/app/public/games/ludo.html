@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Ludo vs CPUs</title>
+<style>
+  :root{
+    --red:#e23b3b; --green:#2aa84a; --yellow:#f2c537; --blue:#2f7fe0;
+    --board:#fafafa; --line:#cfcfcf; --bg:#10131a; --panel:#1b2030;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%; margin:0;}
+  body{
+    background:radial-gradient(120% 120% at 50% 0%, #1d2333 0%, #0c0f16 70%);
+    color:#eef1f7; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    touch-action:manipulation; overflow:hidden; user-select:none; -webkit-user-select:none;
+    padding:env(safe-area-inset-top) 8px env(safe-area-inset-bottom);
+  }
+  header{width:100%; max-width:520px; text-align:center; padding:8px 4px 4px;}
+  h1{margin:0; font-size:20px; letter-spacing:.5px; font-weight:700;}
+  h1 .sub{font-weight:400; opacity:.6; font-size:13px;}
+  #status{
+    margin:6px auto 4px; min-height:22px; font-size:15px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  #status .dot{width:12px;height:12px;border-radius:50%;display:inline-block;box-shadow:0 0 0 2px rgba(255,255,255,.25);}
+  .wrap{
+    position:relative; width:min(94vw, 92vh, 520px); aspect-ratio:1/1;
+    margin:2px auto;
+  }
+  svg{width:100%; height:100%; display:block; border-radius:14px;
+      background:#f4f5f7; box-shadow:0 10px 30px rgba(0,0,0,.45);}
+  .cell{fill:#fff; stroke:var(--line); stroke-width:0.4;}
+  .safe{fill:#e9ecf2;}
+  .star{fill:none; stroke:#9aa3b2; stroke-width:0.6;}
+  .token{cursor:pointer; transition:transform .12s ease;}
+  .token circle{stroke:#1c1c1c; stroke-width:0.7;}
+  .token.movable .ring{stroke:#111; stroke-width:1.2; opacity:1;
+    animation:pulse 1s ease-in-out infinite;}
+  .ring{fill:none; stroke:#111; stroke-width:0; opacity:0;}
+  @keyframes pulse{0%,100%{stroke-opacity:.25;} 50%{stroke-opacity:1;}}
+  .controls{
+    width:100%; max-width:520px; display:flex; align-items:center; justify-content:center;
+    gap:14px; padding:8px 4px 4px;
+  }
+  #dice{
+    width:62px;height:62px;border-radius:14px;background:#fff;color:#10131a;
+    border:none; box-shadow:0 6px 14px rgba(0,0,0,.4); position:relative;
+    cursor:pointer; touch-action:manipulation; flex:0 0 auto;
+  }
+  #dice:disabled{opacity:.55; cursor:default;}
+  #dice.canroll{animation:wob 1s ease-in-out infinite;}
+  @keyframes wob{0%,100%{transform:translateY(0) rotate(0);}25%{transform:translateY(-3px) rotate(-4deg);}75%{transform:translateY(-3px) rotate(4deg);}}
+  .pip{position:absolute;width:10px;height:10px;border-radius:50%;background:#10131a;transform:translate(-50%,-50%);}
+  #newgame{
+    background:var(--panel); color:#eef1f7; border:1px solid #2c3450;
+    padding:12px 16px; border-radius:12px; font-size:15px; font-weight:600;
+    cursor:pointer; touch-action:manipulation;
+  }
+  #newgame:active,#dice:active{transform:scale(.96);}
+  .legend{display:flex;gap:10px;justify-content:center;margin-top:2px;font-size:12px;opacity:.85;flex-wrap:wrap;}
+  .legend span{display:inline-flex;align-items:center;gap:4px;}
+  .legend i{width:10px;height:10px;border-radius:50%;display:inline-block;}
+  #overlay, #modeOverlay{
+    position:fixed; inset:0; background:rgba(6,8,14,.82); backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center; flex-direction:column; gap:16px;
+    z-index:10; text-align:center; padding:20px;
+  }
+  #overlay.show, #modeOverlay.show{display:flex;}
+  #modeOverlay{z-index:11;}
+  #overlay h2, #modeOverlay h2{font-size:30px;margin:0;}
+  #overlay p, #modeOverlay p{margin:0;opacity:.8;}
+  #overlay button, #modeOverlay button{
+    background:#fff;color:#10131a;border:none;padding:14px 26px;border-radius:12px;
+    font-size:17px;font-weight:700;cursor:pointer;
+  }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/ludo.svg">
+    <link rel="manifest" href="/games/ludo.webmanifest">
+    <meta name="theme-color" content="#DC2626">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Ludo">
+    <link rel="apple-touch-icon" href="/games/icons/ludo.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="ludo",NAME="Ludo",COLOR="#DC2626",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+<header>
+  <h1>Ludo <span class="sub">— you vs CPUs</span></h1>
+  <div id="status"><span class="dot" id="statusDot"></span><span id="statusText">Tap the dice to roll</span></div>
+</header>
+
+<div class="wrap">
+  <svg id="board" viewBox="0 0 15 15" preserveAspectRatio="xMidYMid meet" aria-label="Ludo board"></svg>
+</div>
+
+<div class="controls">
+  <button id="newgame">New Game</button>
+  <button id="dice" aria-label="Roll dice"></button>
+</div>
+<div class="legend" id="legend"></div>
+
+<div id="overlay">
+  <h2 id="overTitle">You win!</h2>
+  <p id="overSub"></p>
+  <button id="overBtn">New Game</button>
+</div>
+
+<div id="modeOverlay" class="show">
+  <h2>Ludo</h2>
+  <p>Choose a mode</p>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    <button id="modeAi">🤖 vs Computer</button>
+    <button id="modeTwo">👥 Pass &amp; Play</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  // ----- Colors / players -----
+  // Player order around the board: 0=Red, 1=Green, 2=Yellow, 3=Blue
+  const COLORS = ['red','green','yellow','blue'];
+  const COLVAR = {red:'#e23b3b', green:'#2aa84a', yellow:'#f2c537', blue:'#2f7fe0'};
+  const NAMES  = ['Red','Green','Yellow','Blue'];
+
+  // ----- Board geometry on a 15x15 grid -----
+  // The main track is 52 cells. We define cell coordinates [col,row] (0..14).
+  // Standard Ludo track, going clockwise. Index 0 is Red's first square after exiting.
+  // We'll build the path as the canonical Ludo loop.
+  // Path coordinates (52 cells), starting just outside red base, clockwise.
+  // 52-cell loop, clockwise. Verified: fully indexed, 13 cells per quadrant.
+  // (The 4 inner-corner transitions are diagonal grid neighbours — that is the
+  // real Ludo cross geometry; movement is by track index, not pixel adjacency.)
+  const TRACK = [
+    [6,1],[6,2],[6,3],[6,4],[6,5],            // 0-4   top arm, left file (down)
+    [5,6],[4,6],[3,6],[2,6],[1,6],[0,6],      // 5-10  left arm, top file (left)
+    [0,7],                                     // 11    left middle
+    [0,8],[1,8],[2,8],[3,8],[4,8],[5,8],      // 12-17 left arm, bottom file (right)
+    [6,9],[6,10],[6,11],[6,12],[6,13],[6,14], // 18-23 bottom arm, left file (down)
+    [7,14],                                    // 24    bottom middle
+    [8,14],[8,13],[8,12],[8,11],[8,10],[8,9], // 25-30 bottom arm, right file (up)
+    [9,8],[10,8],[11,8],[12,8],[13,8],[14,8], // 31-36 right arm, bottom file (right)
+    [14,7],                                    // 37    right middle
+    [14,6],[13,6],[12,6],[11,6],[10,6],[9,6], // 38-43 right arm, top file (left)
+    [8,5],[8,4],[8,3],[8,2],[8,1],[8,0],      // 44-49 top arm, right file (up)
+    [7,0],                                     // 50    top middle
+    [6,0]                                      // 51    corner -> back to [6,1]
+  ];
+  // Player start cells (where a token enters the loop from base).
+  const START_IDX = {0:0, 1:13, 2:26, 3:39}; // red,green,yellow,blue
+  // Last track cell before a token diverts up its home column.
+  // (start->homeEntry around the loop is exactly 50 cells.)
+  const HOME_ENTRY = {0:50, 1:11, 2:24, 3:37};
+
+  // Home column cells (5), from just inside the loop toward center, per color.
+  const HOME_PATH = {
+    0:[[7,1],[7,2],[7,3],[7,4],[7,5]],       // red  -> down col 7 (top arm)
+    1:[[1,7],[2,7],[3,7],[4,7],[5,7]],       // green-> right row 7 (left arm)
+    2:[[7,13],[7,12],[7,11],[7,10],[7,9]],   // yellow-> up col 7 (bottom arm)
+    3:[[13,7],[12,7],[11,7],[10,7],[9,7]]    // blue -> left row 7 (right arm)
+  };
+  // Final center goal cell
+  const CENTER = [7,7];
+
+  // Safe squares (track indices): each start cell + a star 8 cells along.
+  const SAFE = new Set([0,8,13,21,26,34,39,47]);
+
+  // Base "yard" token positions (15x15 coords). Red=TL, Green=BL, Yellow=BR, Blue=TR.
+  const BASE_SPOTS = {
+    0:[[1.5,1.5],[3.5,1.5],[1.5,3.5],[3.5,3.5]],         // red top-left
+    1:[[1.5,10.5],[3.5,10.5],[1.5,12.5],[3.5,12.5]],     // green bottom-left
+    2:[[10.5,10.5],[12.5,10.5],[10.5,12.5],[12.5,12.5]], // yellow bottom-right
+    3:[[10.5,1.5],[12.5,1.5],[10.5,3.5],[12.5,3.5]]      // blue top-right
+  };
+
+  // ----- Game state -----
+  // Each token: state = 'base' | 'track' | 'home' | 'done'
+  // pos: if track, absolute track index (0..51); if home, home column index (0..4);
+  //      if done it's at center.
+  let players; // array of {color, tokens:[{state,pos}], isCPU, done}
+  let turn;    // current player index
+  let dieVal;  // current die value (0 if not rolled)
+  let busy;    // animating / cpu thinking
+  let rolledThisTurn;
+  let consecutiveSixes;
+  let gameOver;
+  let mode = 'ai'; // 'ai' = you vs 3 CPUs, '2p' = pass-and-play, 'online' = networked
+
+  // ----- Online (GameMP) state -----
+  // In online mode the four board players map 1:1 to the four colors, but only
+  // the SEATED colors actually play. With <4 players the unseated colors are
+  // "inert": no tokens of theirs ever move, and turn rotation skips them. Each
+  // online client controls exactly one color: its own seat index (0..3).
+  let online = false;       // true while a networked match is live
+  let mySeat = 0;           // our seat / color index (0..3); seat 0 = host = Red
+  let nSeated = 4;          // how many colors are in the match (== player count)
+  let peerLeft = false;     // a peer dropped mid-match (room can't continue)
+  // seated[color] -> bool. Colors 0..nSeated-1 are in play; the rest are inert.
+  function seatedColor(c){ return c < nSeated; }
+
+  // In 2p mode every seat is human; in ai mode only seat 0 is human.
+  // In online mode the human-controlled seat is OUR seat.
+  function isHumanTurn(){
+    if(mode === 'online') return turn === mySeat;
+    return mode === '2p' ? true : turn === 0;
+  }
+  // Name of a seat. In 2p / online use the seat color; in ai seat 0 is "You".
+  function sideName(p){
+    if(mode === 'online') return p === mySeat ? 'You' : NAMES[p];
+    if(mode === '2p') return NAMES[p];
+    return p === 0 ? 'You' : NAMES[p];
+  }
+
+  const svg = document.getElementById('board');
+  const SVGNS = 'http://www.w3.org/2000/svg';
+
+  // ---- Audio ----
+  let actx;
+  function beep(freq, dur, type, vol){
+    try{
+      if(!actx) actx = new (window.AudioContext||window.webkitAudioContext)();
+      const o=actx.createOscillator(), g=actx.createGain();
+      o.type=type||'square'; o.frequency.value=freq;
+      g.gain.value=vol||0.06;
+      o.connect(g); g.connect(actx.destination);
+      const t=actx.currentTime;
+      g.gain.setValueAtTime(g.gain.value,t);
+      g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+      o.start(t); o.stop(t+dur);
+    }catch(e){}
+  }
+  const sRoll =()=>{beep(220,0.08,'square',0.05);setTimeout(()=>beep(330,0.08,'square',0.05),60);};
+  const sMove =()=>beep(440,0.06,'triangle',0.05);
+  const sCap  =()=>{beep(180,0.12,'sawtooth',0.07);setTimeout(()=>beep(120,0.16,'sawtooth',0.07),80);};
+  const sHome =()=>{beep(523,0.1,'sine',0.07);setTimeout(()=>beep(784,0.14,'sine',0.07),90);};
+  const sWin  =()=>{[523,659,784,1047].forEach((f,i)=>setTimeout(()=>beep(f,0.18,'sine',0.07),i*120));};
+
+  // ---- Build static board ----
+  function buildBoard(){
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    // background big colored corners (bases) + white cross
+    // Red=TL, Blue=TR, Green=BL, Yellow=BR
+    const bgCorners = [
+      {c:'red', x:0,y:0}, {c:'blue', x:9,y:0},
+      {c:'green', x:0,y:9}, {c:'yellow', x:9,y:9}
+    ];
+    bgCorners.forEach(b=>{
+      rect(b.x,b.y,6,6, COLVAR[b.c]);
+      // inner white yard
+      rect(b.x+1,b.y+1,4,4,'#fff', '#00000022', 0.15);
+    });
+
+    // white cross arms background
+    rect(6,0,3,6,'#fff');   // top arm
+    rect(6,9,3,6,'#fff');   // bottom arm
+    rect(0,6,6,3,'#fff');   // left arm
+    rect(9,6,6,3,'#fff');   // right arm
+    rect(6,6,3,3,'#fff');   // center block
+
+    // draw all track cells (grid lines)
+    function cellAt(x,y,fill){
+      const r=document.createElementNS(SVGNS,'rect');
+      r.setAttribute('x',x); r.setAttribute('y',y);
+      r.setAttribute('width',1); r.setAttribute('height',1);
+      r.setAttribute('class','cell');
+      if(fill) r.setAttribute('fill',fill);
+      svg.appendChild(r);
+    }
+    // outline all cross cells
+    for(let i=0;i<TRACK.length;i++){ const [x,y]=TRACK[i]; cellAt(x,y); }
+    // home paths colored
+    for(let p=0;p<4;p++){
+      HOME_PATH[p].forEach(([x,y])=>cellAt(x,y, COLVAR[COLORS[p]]));
+    }
+    // colored start cells
+    cellAt(...TRACK[START_IDX[0]], COLVAR['red']);
+    cellAt(...TRACK[START_IDX[1]], COLVAR['green']);
+    cellAt(...TRACK[START_IDX[2]], COLVAR['yellow']);
+    cellAt(...TRACK[START_IDX[3]], COLVAR['blue']);
+
+    // safe-square markers (stars)
+    SAFE.forEach(idx=>{
+      const [x,y]=TRACK[idx];
+      drawStar(x+0.5,y+0.5,0.32);
+    });
+
+    // center triangles (goal) - 4 colored triangles meeting in middle.
+    // top arm -> red, left arm -> green, bottom arm -> yellow, right arm -> blue
+    triangle([6,6],[7.5,7.5],[9,6], COLVAR['red']);     // top   -> red
+    triangle([6,6],[7.5,7.5],[6,9], COLVAR['green']);   // left  -> green
+    triangle([6,9],[7.5,7.5],[9,9], COLVAR['yellow']);  // bottom-> yellow
+    triangle([9,6],[7.5,7.5],[9,9], COLVAR['blue']);    // right -> blue
+
+    // layer group for tokens (on top)
+    const g=document.createElementNS(SVGNS,'g');
+    g.setAttribute('id','tokens');
+    svg.appendChild(g);
+  }
+
+  function rect(x,y,w,h,fill,stroke,sw){
+    const r=document.createElementNS(SVGNS,'rect');
+    r.setAttribute('x',x);r.setAttribute('y',y);
+    r.setAttribute('width',w);r.setAttribute('height',h);
+    r.setAttribute('fill',fill||'#fff');
+    if(stroke){r.setAttribute('stroke',stroke);r.setAttribute('stroke-width',sw||0.2);}
+    svg.appendChild(r); return r;
+  }
+  function triangle(a,b,c,fill){
+    const p=document.createElementNS(SVGNS,'polygon');
+    p.setAttribute('points',`${a[0]},${a[1]} ${b[0]},${b[1]} ${c[0]},${c[1]}`);
+    p.setAttribute('fill',fill); p.setAttribute('stroke','#fff'); p.setAttribute('stroke-width',0.1);
+    svg.appendChild(p);
+  }
+  function drawStar(cx,cy,r){
+    let pts='';
+    for(let i=0;i<5;i++){
+      const a1=-Math.PI/2 + i*2*Math.PI/5;
+      const a2=a1+Math.PI/5;
+      pts+=`${cx+Math.cos(a1)*r},${cy+Math.sin(a1)*r} `;
+      pts+=`${cx+Math.cos(a2)*r*0.45},${cy+Math.sin(a2)*r*0.45} `;
+    }
+    const p=document.createElementNS(SVGNS,'polygon');
+    p.setAttribute('points',pts.trim());
+    p.setAttribute('class','star');
+    svg.appendChild(p);
+  }
+
+  // ---- Coordinate lookup for a token ----
+  function tokenCoord(p, tk){
+    if(tk.state==='base'){
+      const [bx,by]=BASE_SPOTS[p][tk.slot]; // already cell-center coords
+      return [bx, by];
+    }
+    if(tk.state==='track'){
+      const [x,y]=TRACK[tk.pos];
+      return [x+0.5,y+0.5];
+    }
+    if(tk.state==='home'){
+      const [x,y]=HOME_PATH[p][tk.pos];
+      return [x+0.5,y+0.5];
+    }
+    // done -> center, fan out slightly by slot
+    const off=[[-0.22,-0.22],[0.22,-0.22],[-0.22,0.22],[0.22,0.22]][tk.slot];
+    return [CENTER[0]+0.5+off[0], CENTER[1]+0.5+off[1]];
+  }
+
+  // ---- Render tokens ----
+  function render(){
+    const g=document.getElementById('tokens');
+    while(g.firstChild) g.removeChild(g.firstChild);
+
+    // group tokens by cell to offset overlaps on track
+    const cellMap={};
+    for(let p=0;p<4;p++){
+      players[p].tokens.forEach((tk,ti)=>{
+        if(tk.state==='track'){
+          const k='t'+tk.pos;
+          (cellMap[k]=cellMap[k]||[]).push({p,ti});
+        }
+      });
+    }
+
+    // Whose tokens get the "tap me" pulse. Locally: the current human seat.
+    // Online: only OUR own tokens, and only on our turn.
+    const canPick = mode==='online' ? (turn===mySeat) : (players[turn].isCPU===false);
+    const movable = (!busy && !gameOver && dieVal>0 && canPick)
+                    ? legalMoves(turn,dieVal).map(m=>m.ti) : [];
+
+    for(let p=0;p<4;p++){
+      players[p].tokens.forEach((tk,ti)=>{
+        let [cx,cy]=tokenCoord(p,tk);
+        // offset stacked track tokens
+        if(tk.state==='track'){
+          const arr=cellMap['t'+tk.pos];
+          if(arr && arr.length>1){
+            const idx=arr.findIndex(o=>o.p===p&&o.ti===ti);
+            const n=arr.length;
+            const ang=idx/n*2*Math.PI;
+            const rr=0.16;
+            cx+=Math.cos(ang)*rr; cy+=Math.sin(ang)*rr;
+          }
+        }
+        const grp=document.createElementNS(SVGNS,'g');
+        grp.setAttribute('class','token'+(p===turn && movable.includes(ti)?' movable':''));
+        grp.setAttribute('transform',`translate(${cx},${cy})`);
+
+        const ring=document.createElementNS(SVGNS,'circle');
+        ring.setAttribute('r',0.46); ring.setAttribute('class','ring');
+        grp.appendChild(ring);
+
+        const c=document.createElementNS(SVGNS,'circle');
+        c.setAttribute('r',0.34);
+        c.setAttribute('fill',COLVAR[COLORS[p]]);
+        grp.appendChild(c);
+        // little highlight
+        const hl=document.createElementNS(SVGNS,'circle');
+        hl.setAttribute('r',0.13); hl.setAttribute('cx',-0.1); hl.setAttribute('cy',-0.1);
+        hl.setAttribute('fill','rgba(255,255,255,.55)'); hl.setAttribute('stroke','none');
+        grp.appendChild(hl);
+
+        if(p===turn && movable.includes(ti)){
+          grp.style.cursor='pointer';
+          grp.addEventListener('click',()=>onTokenTap(ti));
+        }
+        g.appendChild(grp);
+      });
+    }
+  }
+
+  // ---- Movement logic ----
+  // Compute the absolute "linear distance from start" for a track token of player p.
+  // Returns steps traveled along that player's own route (0..50 on track, then 51..55 home, 56 = done).
+  function progress(p, tk){
+    if(tk.state==='base') return -1;
+    if(tk.state==='done') return 56;
+    if(tk.state==='home') return 51 + tk.pos; // 51..55
+    // track: distance from player's start index
+    const s=START_IDX[p];
+    let d = tk.pos - s;
+    if(d<0) d+=52;
+    return d; // 0..50
+  }
+
+  // Given a token and a die, return the resulting move descriptor or null if illegal.
+  function tryMove(p, tk, die){
+    if(tk.state==='done') return null;
+    if(tk.state==='base'){
+      if(die!==6) return null;
+      // leave base onto start cell
+      return {type:'leave', toState:'track', toPos:START_IDX[p]};
+    }
+    const prog=progress(p,tk);
+    const target=prog+die;
+    if(target>56) return null; // overshoot center
+    if(target===56){
+      return {type:'finish', toState:'done', toPos:0};
+    }
+    if(target>=51){
+      // into home column, index = target-51 (0..4)
+      return {type:'home', toState:'home', toPos:target-51};
+    }
+    // still on track: compute absolute track index
+    const abs=(START_IDX[p]+target)%52;
+    return {type:'track', toState:'track', toPos:abs};
+  }
+
+  function legalMoves(p, die){
+    const out=[];
+    players[p].tokens.forEach((tk,ti)=>{
+      const mv=tryMove(p,tk,die);
+      if(mv) out.push(Object.assign({ti},mv));
+    });
+    return out;
+  }
+
+  // Apply a move (returns {captured:bool}); does not change turn.
+  function applyMove(p, mv){
+    const tk=players[p].tokens[mv.ti];
+    let captured=false;
+    if(mv.toState==='track'){
+      // check capture on landing cell (only on track, not safe)
+      const idx=mv.toPos;
+      if(!SAFE.has(idx)){
+        for(let q=0;q<4;q++){
+          if(q===p) continue;
+          players[q].tokens.forEach(otk=>{
+            if(otk.state==='track' && otk.pos===idx){
+              // send back to base
+              otk.state='base';
+              captured=true;
+            }
+          });
+        }
+      }
+    }
+    tk.state=mv.toState;
+    tk.pos = (mv.toState==='track') ? mv.toPos
+            : (mv.toState==='home') ? mv.toPos
+            : (mv.toState==='done') ? 0 : tk.pos;
+    return {captured};
+  }
+
+  // ---- Turn flow ----
+  function setStatus(text){
+    document.getElementById('statusText').textContent=text;
+    document.getElementById('statusDot').style.background=COLVAR[COLORS[turn]];
+  }
+
+  function diceFace(n){
+    const d=document.getElementById('dice');
+    while(d.firstChild) d.removeChild(d.firstChild);
+    if(n<1){ return; }
+    // pip layouts (percent positions)
+    const P={
+      1:[[50,50]],
+      2:[[28,28],[72,72]],
+      3:[[28,28],[50,50],[72,72]],
+      4:[[28,28],[72,28],[28,72],[72,72]],
+      5:[[28,28],[72,28],[50,50],[28,72],[72,72]],
+      6:[[28,25],[72,25],[28,50],[72,50],[28,75],[72,75]]
+    };
+    (P[n]||[]).forEach(([x,y])=>{
+      const s=document.createElement('span');
+      s.className='pip'; s.style.left=x+'%'; s.style.top=y+'%';
+      d.appendChild(s);
+    });
+  }
+
+  function updateDiceButton(){
+    const d=document.getElementById('dice');
+    let canRoll;
+    if(mode==='online'){
+      // Only the seat whose turn it is may roll, and only once per turn.
+      canRoll = !busy && !gameOver && turn===mySeat && !rolledThisTurn;
+    }else{
+      canRoll = !busy && !gameOver && !players[turn].isCPU && !rolledThisTurn;
+    }
+    d.disabled = !canRoll;
+    d.classList.toggle('canroll', canRoll && dieVal===0);
+  }
+
+  function roll(){
+    if(busy||gameOver) return;
+    if(rolledThisTurn) return;
+    if(mode==='online'){
+      // Only the active seat may roll; it picks the value and BROADCASTS it so
+      // every client applies the identical die (no hidden info).
+      if(turn!==mySeat) return;
+      const val=1+Math.floor(Math.random()*6);
+      GameMP.send({ action:'roll', seat:mySeat, value:val });
+      onlineRollAnim(mySeat, val);
+      return;
+    }
+    if(players[turn].isCPU) return;
+    busy=true; sRoll();
+    updateDiceButton();
+    // animate quick faces
+    let n=0, ticks=0;
+    const iv=setInterval(()=>{
+      n=1+Math.floor(Math.random()*6);
+      diceFace(n); ticks++;
+      if(ticks>=8){
+        clearInterval(iv);
+        dieVal=n; diceFace(n);
+        rolledThisTurn=true;
+        busy=false;
+        afterRoll(turn);
+      }
+    },55);
+  }
+
+  function afterRoll(p){
+    const moves=legalMoves(p,dieVal);
+    if(moves.length===0){
+      // no move possible — turn passes. This is deterministic from the (shared)
+      // die value, so every online client runs it independently; no extra msg.
+      setStatus(sideName(p)+' rolled '+dieVal+' — no move');
+      render();
+      setTimeout(()=>endTurn(p, false), 650);
+      return;
+    }
+    if(mode==='online'){
+      busy=false;
+      if(p===mySeat) setStatus('You rolled '+dieVal+' — tap a token');
+      else setStatus(sideName(p)+' rolled '+dieVal+'…');
+      render(); updateDiceButton();
+      return;
+    }
+    if(players[p].isCPU){
+      setStatus(sideName(p)+' rolled '+dieVal);
+      setTimeout(()=>cpuChoose(p, moves), 520);
+    }else{
+      setStatus(sideName(p)+' rolled '+dieVal+' — tap a token');
+      render();
+    }
+  }
+
+  function onTokenTap(ti){
+    if(busy||gameOver) return;
+    if(!rolledThisTurn||dieVal<1) return;
+    if(mode==='online'){
+      // Only our own seat moves, and only on our turn. Broadcast the chosen
+      // token; everyone (including us) applies it via the shared online path.
+      if(turn!==mySeat) return;
+      const mv=legalMoves(mySeat,dieVal).find(m=>m.ti===ti);
+      if(!mv) return;
+      GameMP.send({ action:'move', seat:mySeat, token:ti });
+      applyOnlineMove(mySeat, ti);
+      return;
+    }
+    if(players[turn].isCPU) return;
+    const moves=legalMoves(turn,dieVal);
+    const mv=moves.find(m=>m.ti===ti);
+    if(!mv) return;
+    executeMove(turn, mv);
+  }
+
+  function executeMove(p, mv){
+    busy=true;
+    const res=applyMove(p,mv);
+    if(res.captured) sCap(); else if(mv.type==='finish'||mv.type==='home') sHome(); else sMove();
+    render();
+
+    // check win
+    if(players[p].tokens.every(t=>t.state==='done')){
+      players[p].done=true;
+      win(p);
+      return;
+    }
+
+    const extra = (dieVal===6) || res.captured || mv.type==='finish';
+    busy=false;
+    if(extra){
+      // same player goes again (capture, six, or finishing a token grant bonus)
+      dieVal=0; rolledThisTurn=false;
+      if(players[p].isCPU){
+        setStatus(sideName(p)+' goes again');
+        setTimeout(()=>cpuTurn(p), 520);
+      }else{
+        setStatus((mode==='2p'?sideName(p)+' — bonus roll!':'Bonus roll! Tap the dice'));
+        diceFace(0);
+        render(); updateDiceButton();
+      }
+    }else{
+      endTurn(p, false);
+    }
+  }
+
+  function endTurn(p, sixChain){
+    dieVal=0; rolledThisTurn=false; consecutiveSixes=0;
+    diceFace(0);
+    // advance to next non-finished player. Online: also skip inert (unseated)
+    // colors so the turn only ever cycles among the seated players.
+    let nx=p;
+    for(let i=0;i<4;i++){
+      nx=(nx+1)%4;
+      if(players[nx].done) continue;
+      if(mode==='online' && !seatedColor(nx)) continue;
+      break;
+    }
+    turn=nx;
+    render();
+    updateDiceButton();
+    if(mode==='online'){
+      onlineTurnUI();
+      return;
+    }
+    if(players[turn].isCPU){
+      setStatus(sideName(turn)+'’s turn');
+      setTimeout(()=>cpuTurn(turn), 560);
+    }else{
+      setStatus((mode==='2p'?sideName(turn)+' — tap the dice':'Your turn — tap the dice'));
+      document.getElementById('dice').classList.add('canroll');
+    }
+  }
+
+  // ---- Online turn flow (deterministic; mirrors the local rules) -----------
+  // Status / dice prompt at the start of an online turn (after rotation).
+  function onlineTurnUI(){
+    dieVal=0; rolledThisTurn=false; diceFace(0);
+    render(); updateDiceButton();
+    if(turn===mySeat){
+      setStatus('Your turn — tap the dice');
+      document.getElementById('dice').classList.add('canroll');
+    }else{
+      setStatus(sideName(turn)+'’s turn…');
+    }
+  }
+  // Animate the dice for the seat that rolled, then apply the (shared) value
+  // on every client identically. `seat` is the roller; `val` the broadcast die.
+  function onlineRollAnim(seat, val){
+    if(busy||gameOver) return;
+    busy=true; sRoll(); updateDiceButton();
+    let ticks=0;
+    const iv=setInterval(()=>{
+      diceFace(1+Math.floor(Math.random()*6)); ticks++;
+      if(ticks>=7){
+        clearInterval(iv);
+        dieVal=val; diceFace(val);
+        rolledThisTurn=true; busy=false;
+        afterRoll(seat);
+      }
+    },50);
+  }
+  // Apply a move chosen by `seat` (token index `ti`) — identical capture / home
+  // / extra-turn / win logic on every client, mirroring executeMove().
+  function applyOnlineMove(seat, ti){
+    if(gameOver || turn!==seat) return; // stale / not this seat's turn anymore
+    // A move can arrive on a remote peer that is still animating this turn's
+    // roll (dieVal not yet set). Retry shortly so we apply the SAME die.
+    if(busy || !rolledThisTurn || dieVal<1){
+      setTimeout(()=>applyOnlineMove(seat, ti), 60);
+      return;
+    }
+    const mv=legalMoves(seat,dieVal).find(m=>m.ti===ti);
+    if(!mv) return; // already applied / illegal (idempotency guard)
+    busy=true;
+    const res=applyMove(seat,mv);
+    if(res.captured) sCap(); else if(mv.type==='finish'||mv.type==='home') sHome(); else sMove();
+    render();
+
+    if(players[seat].tokens.every(t=>t.state==='done')){
+      players[seat].done=true;
+      win(seat);
+      return;
+    }
+
+    // Standard Ludo bonus: a 6, a capture, or finishing a token => roll again.
+    const extra = (dieVal===6) || res.captured || mv.type==='finish';
+    busy=false;
+    if(extra){
+      dieVal=0; rolledThisTurn=false; diceFace(0);
+      render(); updateDiceButton();
+      if(turn===mySeat){
+        setStatus('Bonus roll! Tap the dice');
+        document.getElementById('dice').classList.add('canroll');
+      }else{
+        setStatus(sideName(turn)+' goes again…');
+      }
+    }else{
+      endTurn(seat, false);
+    }
+  }
+
+  // ---- CPU ----
+  function cpuTurn(p){
+    if(gameOver) return;
+    if(turn!==p) return;
+    busy=true; sRoll();
+    let n=0,ticks=0;
+    const iv=setInterval(()=>{
+      n=1+Math.floor(Math.random()*6); diceFace(n); ticks++;
+      if(ticks>=7){
+        clearInterval(iv);
+        dieVal=n; diceFace(n); rolledThisTurn=true; busy=false;
+        afterRoll(p);
+      }
+    },50);
+  }
+
+  function cpuChoose(p, moves){
+    // scoring: prefer capture > finish > get out on 6 > advance furthest, but
+    // value moving onto safe squares and out of danger.
+    let best=moves[0], bestScore=-1e9;
+    moves.forEach(mv=>{
+      let score=0;
+      const tk=players[p].tokens[mv.ti];
+      // capture?
+      if(mv.toState==='track' && !SAFE.has(mv.toPos)){
+        for(let q=0;q<4;q++){ if(q===p) continue;
+          players[q].tokens.forEach(o=>{ if(o.state==='track'&&o.pos===mv.toPos) score+=120; });
+        }
+      }
+      if(mv.type==='finish') score+=100;
+      if(mv.type==='home') score+=40 + mv.toPos*4;
+      if(mv.type==='leave') score+=55; // get a token out
+      // advancing: more progress = slightly better
+      score += progress(p, tk)*0.4 + dieVal*0.5;
+      // landing on safe square bonus
+      if(mv.toState==='track' && SAFE.has(mv.toPos)) score+=18;
+      // avoid landing where an opponent behind could hit next (rough danger)
+      if(mv.toState==='track' && !SAFE.has(mv.toPos)){
+        for(let q=0;q<4;q++){ if(q===p) continue;
+          players[q].tokens.forEach(o=>{
+            if(o.state==='track'){
+              let d=mv.toPos-o.pos; if(d<0)d+=52;
+              if(d>=1&&d<=6) score-=14;
+            }
+          });
+        }
+      }
+      score += Math.random()*3;
+      if(score>bestScore){bestScore=score; best=mv;}
+    });
+    executeMove(p, best);
+  }
+
+  // ---- Win ----
+  function win(p){
+    gameOver=true; busy=false;
+    render();
+    sWin();
+    const ov=document.getElementById('overlay');
+    if(mode==='online'){
+      const iWon = p===mySeat;
+      document.getElementById('overTitle').textContent = iWon ? 'You win!' : NAMES[p]+' wins';
+      document.getElementById('overSub').textContent = iWon
+        ? 'All four tokens home. Nicely done!'
+        : NAMES[p]+' got all four tokens home.';
+      // Only the host (seat 0) can start a rematch (sendReset resets everyone).
+      const ob=document.getElementById('overBtn');
+      ob.textContent = 'Play again';
+      ob.style.display = mySeat===0 ? '' : 'none';
+    }else{
+      document.getElementById('overTitle').textContent =
+        (mode==='2p' ? sideName(p)+' wins!' : (p===0? 'You win!' : NAMES[p]+' wins'));
+      document.getElementById('overSub').textContent =
+        (mode==='2p' ? sideName(p)+' got all four tokens home!'
+                     : (p===0? 'All four tokens home. Nicely done!' : 'Better luck next round.'));
+      const ob=document.getElementById('overBtn');
+      ob.textContent='New Game'; ob.style.display='';
+    }
+    document.getElementById('overTitle').style.color = COLVAR[COLORS[p]];
+    ov.classList.add('show');
+    setStatus(sideName(p)+' won the game');
+    updateDiceButton();
+  }
+
+  // ---- New game ----
+  function newGame(){
+    gameOver=false; busy=false; dieVal=0; rolledThisTurn=false; consecutiveSixes=0; peerLeft=false;
+    document.getElementById('overlay').classList.remove('show');
+    players=[];
+    for(let p=0;p<4;p++){
+      players.push({
+        color:COLORS[p],
+        isCPU: (mode==='2p'||mode==='online') ? false : p!==0,
+        done:false,
+        tokens:[0,1,2,3].map(s=>({state:'base', pos:-1, slot:s}))
+      });
+    }
+    turn=0; // seat 0 (Red, the host) always opens
+    buildBoard();
+    diceFace(0);
+    render();
+    buildLegend();
+    if(mode==='online'){
+      onlineTurnUI();
+      updateDiceButton();
+      return;
+    }
+    setStatus(mode==='2p' ? (sideName(0)+' — tap the dice') : 'Your turn — tap the dice');
+    document.getElementById('dice').classList.add('canroll');
+    updateDiceButton();
+  }
+
+  function buildLegend(){
+    const el=document.getElementById('legend');
+    el.innerHTML='';
+    NAMES.forEach((nm,i)=>{
+      // Online with <4 players: only show the seated colors in the legend.
+      if(mode==='online' && !seatedColor(i)) return;
+      const s=document.createElement('span');
+      const dot=document.createElement('i'); dot.style.background=COLVAR[COLORS[i]];
+      s.appendChild(dot);
+      s.appendChild(document.createTextNode(sideName(i)));
+      el.appendChild(s);
+    });
+  }
+
+  // ---- Mode selection ----
+  function showModeSelect(){
+    online=false; // leaving any networked match when returning to the picker
+    document.getElementById('modeOverlay').classList.add('show');
+  }
+  function startMode(m){
+    online = (m==='online');
+    mode=m;
+    document.getElementById('modeOverlay').classList.remove('show');
+    newGame();
+  }
+
+  // ---- Events ----
+  document.getElementById('dice').addEventListener('click', roll);
+  // "New Game" returns to the mode picker so you can switch modes.
+  document.getElementById('newgame').addEventListener('click', showModeSelect);
+  // Win-overlay button: online host rematch (resets everyone), "New game" after
+  // a disconnect (reopens the create panel), or a plain local restart.
+  document.getElementById('overBtn').addEventListener('click', function(){
+    if(mode==='online'){
+      if(peerLeft){ GameMP.openCreate(); return; } // can't rematch a broken room
+      if(mySeat!==0) return;        // only the host can rematch
+      GameMP.sendReset();           // tell every peer to reset
+      newGame();                    // and reset ourselves
+    }else{
+      newGame();
+    }
+  });
+  document.getElementById('modeAi').addEventListener('click', function(){ startMode('ai'); });
+  document.getElementById('modeTwo').addEventListener('click', function(){ startMode('2p'); });
+
+  // ---- Online multiplayer (GameMP) -----------------------------------------
+  // 2–4 players. GameMP's built-in waiting room handles lobby/seating; we render
+  // no lobby ourselves. It auto-injects a "🌐 Online Game" button after #modeTwo.
+  GameMP.setup({ gameName:'Ludo', minPlayers:2, maxPlayers:4 });
+  GameMP.onReady(function(seat, count){
+    // seat 0 = host = Red; each seat maps to color = seat. With <4 players only
+    // colors 0..count-1 play; the rest are inert and skipped in rotation.
+    mySeat = seat;
+    nSeated = count;
+    startMode('online');
+  });
+  GameMP.onMove(function(m){
+    if(!online || gameOver) return;
+    // Ignore anything not from the seat whose turn it currently is (stale/echo).
+    if(m.seat !== turn) return;
+    if(m.action==='roll'){
+      if(rolledThisTurn) return;          // already applied this turn
+      onlineRollAnim(m.seat, m.value);
+    }else if(m.action==='move'){
+      applyOnlineMove(m.seat, m.token);
+    }
+  });
+  GameMP.onReset(function(){
+    // Host pressed Play again — everyone resets to a fresh match.
+    if(!online) return;
+    newGame();
+  });
+  GameMP.onPeerLeft(function(){
+    // No host-authoritative server: a mid-match drop breaks the deterministic
+    // turn order, so end the match cleanly with a "New game" prompt.
+    if(!online || gameOver) return;
+    gameOver=true; busy=false; peerLeft=true;
+    const ov=document.getElementById('overlay');
+    document.getElementById('overTitle').textContent='Player left';
+    document.getElementById('overTitle').style.color='#fff';
+    document.getElementById('overSub').textContent=
+      'Someone disconnected, so this match can’t continue. Start a new online game to play again.';
+    const ob=document.getElementById('overBtn');
+    ob.textContent='New game'; ob.style.display='';
+    ov.classList.add('show');
+    setStatus('Player left the game');
+    updateDiceButton();
+  });
+
+  // init — render an idle board behind the mode picker, then ask for a mode.
+  newGame();
+  showModeSelect();
+})();
+</script>
+</body>
+</html>

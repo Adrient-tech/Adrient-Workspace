@@ -1,0 +1,30 @@
+# REFERENCE — how to publicly route https://guac.adrient.com/ to the in-cluster
+# Guacamole gateway (Service guacamole.adrient.svc.cluster.local:8080, ns adrient).
+#
+# IMPORTANT: this cloudflared tunnel is REMOTELY-MANAGED. cloudflared pulls its
+# ingress config from the Cloudflare API ("Updated to new configuration
+# version=N" in its logs) and IGNORES the local config.yaml ConfigMap in ns
+# network. So the route must be added in Cloudflare, NOT in the ConfigMap/gitops.
+#
+# Two parts:
+#
+# 1. DNS — DONE: a proxied CNAME guac.adrient.com -> <tunnel-id>.cfargotunnel.com
+#    was created via the Cloudflare API (tunnel d8f930ef-73c0-4283-bd8a-d9180e8f9ed0).
+#
+# 2. Tunnel public hostname — TODO (needs a "Cloudflare Tunnel: Edit" token or the
+#    dashboard; the in-cluster DNS token can't do it):
+#
+#    Dashboard: Zero Trust → Networks → Tunnels → <the tunnel> → Public Hostnames
+#      → Add a public hostname:
+#         Subdomain: guac   Domain: adrient.com
+#         Service:   HTTP   URL: guacamole.adrient.svc.cluster.local:8080
+#
+#    Or via API (PUT the tunnel configuration with the extra ingress rule):
+#      PUT https://api.cloudflare.com/client/v4/accounts/<acct>/cfd_tunnel/<tunnel>/configurations
+#      adding: { "hostname": "guac.adrient.com",
+#                "service": "http://guacamole.adrient.svc.cluster.local:8080" }
+#      before the catch-all { "service": "http_status:503" }.
+#
+# After that, https://guac.adrient.com/ reaches Guacamole. Then switch guacadmin →
+# SSO (deploy/guacamole/30-guacamole.yaml + the Zitadel client) and set
+# ADRIENT_GUAC_URL on the adrient deployment for the Access-page button.

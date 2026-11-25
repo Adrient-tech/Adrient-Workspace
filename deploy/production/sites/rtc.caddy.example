@@ -1,0 +1,6 @@
+# install.sh copies this to sites/rtc.caddy. LiveKit signalling (WebSocket)
+# at rtc.<domain>; media/TURN bypass Caddy and hit the host directly.
+{$RTC_HOST} {
+	header -Server
+	reverse_proxy host.docker.internal:7880
+}

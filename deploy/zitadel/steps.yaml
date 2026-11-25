@@ -1,0 +1,18 @@
+# Zitadel `setup` steps. Run once at first boot via `zitadel setup`.
+# Reads zitadel.yaml for everything not specified here.
+# Local-dev defaults. NEVER use the credentials below in production.
+Steps:
+  FirstInstance:
+    InstanceName: adrient-dev
+    DefaultLanguage: en
+    Org:
+      Name: adrient-dev
+      Human:
+        UserName: admin
+        FirstName: Adrient
+        LastName: Admin
+        Email:
+          Address: admin@adrient.localtest.me
+          Verified: true
+        Password: DevPassword!1
+        PasswordChangeRequired: false

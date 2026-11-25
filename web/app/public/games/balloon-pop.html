@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Balloon Pop</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+    user-select: none; -webkit-user-select: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(180deg, #6dd5ff 0%, #c2f0ff 60%, #eafff0 100%);
+  }
+  #game {
+    position: relative;
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+  }
+  #hud {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px;
+    gap: 8px;
+    z-index: 5;
+  }
+  #title {
+    font-size: clamp(18px, 6vw, 28px);
+    font-weight: 800;
+    color: #ff4d8d;
+    text-shadow: 1px 2px 0 #fff;
+    white-space: nowrap;
+  }
+  .stat {
+    font-size: clamp(14px, 4.5vw, 20px);
+    font-weight: 800;
+    color: #fff;
+    background: rgba(0,0,0,0.18);
+    border-radius: 14px;
+    padding: 4px 12px;
+    min-width: 56px;
+    text-align: center;
+  }
+  #time.low { background: #ff5a5a; animation: pulse 0.6s infinite; }
+  @keyframes pulse { 50% { transform: scale(1.12); } }
+  #stage {
+    position: relative;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: blur(2px);
+    z-index: 10;
+    padding: 20px;
+  }
+  #overlay h2 {
+    margin: 0 0 6px;
+    font-size: clamp(26px, 9vw, 44px);
+    color: #ff4d8d;
+    text-shadow: 1px 2px 0 #fff;
+  }
+  #overlay p {
+    margin: 4px 0 18px;
+    font-size: clamp(16px, 5vw, 22px);
+    color: #333; font-weight: 600;
+  }
+  #finalScore { font-size: clamp(30px, 11vw, 56px); font-weight: 900; color: #2aa84a; margin: 8px 0; }
+  button {
+    font-size: clamp(20px, 6vw, 26px);
+    font-weight: 800;
+    color: #fff;
+    background: linear-gradient(180deg, #ff7eb3, #ff4d8d);
+    border: none;
+    border-radius: 999px;
+    padding: 16px 40px;
+    box-shadow: 0 6px 0 #d62e6e, 0 8px 16px rgba(0,0,0,0.2);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:active { transform: translateY(4px); box-shadow: 0 2px 0 #d62e6e; }
+  .hint { font-size: clamp(13px, 4vw, 16px); color:#555; margin-top:14px; line-height:1.5; }
+  .hidden { display: none !important; }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/balloon-pop.svg">
+    <link rel="manifest" href="/games/balloon-pop.webmanifest">
+    <meta name="theme-color" content="#EF4444">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Balloon Pop">
+    <link rel="apple-touch-icon" href="/games/icons/balloon-pop.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="balloon-pop",NAME="Balloon Pop",COLOR="#EF4444",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+<div id="game">
+  <div id="hud">
+    <div id="title">🎈 Balloon Pop</div>
+    <div class="stat" id="score">⭐ 0</div>
+    <div class="stat" id="time">⏱ 30</div>
+  </div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="overlay">
+      <h2 id="ovTitle">🎈 Balloon Pop</h2>
+      <p id="ovText">Pop as many balloons as you can in 30 seconds!</p>
+      <div id="finalScore" class="hidden">0</div>
+      <button id="startBtn">Start</button>
+      <div class="hint">🟡 Gold = bonus &nbsp;•&nbsp; 💣 Bomb = avoid!</div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var scoreEl = document.getElementById("score");
+  var timeEl = document.getElementById("time");
+  var overlay = document.getElementById("overlay");
+  var ovTitle = document.getElementById("ovTitle");
+  var ovText = document.getElementById("ovText");
+  var finalScoreEl = document.getElementById("finalScore");
+  var startBtn = document.getElementById("startBtn");
+
+  var DPR = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  var W = 360, H = 640; // CSS pixels of the stage
+
+  function resize() {
+    var rect = cv.getBoundingClientRect();
+    W = Math.max(1, rect.width);
+    H = Math.max(1, rect.height);
+    cv.width = Math.round(W * DPR);
+    cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener("resize", resize);
+
+  // ---- Audio ----
+  var actx = null;
+  function audio() {
+    if (!actx) {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) actx = new AC();
+      } catch (e) { actx = null; }
+    }
+    if (actx && actx.state === "suspended") { actx.resume(); }
+    return actx;
+  }
+  function pop(freq, type) {
+    var a = audio();
+    if (!a) return;
+    var t = a.currentTime;
+    var o = a.createOscillator();
+    var g = a.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq || 600, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(80, (freq || 600) * 0.4), t + 0.12);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + 0.2);
+  }
+  function buzz() {
+    var a = audio();
+    if (!a) return;
+    var t = a.currentTime;
+    var o = a.createOscillator();
+    var g = a.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(180, t);
+    o.frequency.exponentialRampToValueAtTime(60, t + 0.3);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g); g.connect(a.destination);
+    o.start(t); o.stop(t + 0.36);
+  }
+
+  // ---- Game state ----
+  var COLORS = ["#ff5a5a", "#ff8c42", "#3ec6ff", "#7b61ff", "#2aa84a", "#ff66c4"];
+  var balloons = [];
+  var particles = [];
+  var floaters = []; // score popups
+  var running = false;
+  var score = 0;
+  var timeLeft = 30;
+  var spawnTimer = 0;
+  var spawnInterval = 0.9; // seconds, decreases over time
+  var lastTs = 0;
+  var roundDuration = 30;
+  var timerAcc = 0;
+
+  function rand(a, b) { return a + Math.random() * (b - a); }
+
+  function spawnBalloon() {
+    var r = Math.random();
+    var kind = "normal";
+    if (r < 0.07) kind = "bomb";
+    else if (r < 0.17) kind = "gold";
+
+    var radius = rand(26, 42);
+    if (kind === "gold") radius = rand(24, 32);
+    if (kind === "bomb") radius = rand(28, 38);
+
+    var x = rand(radius + 6, W - radius - 6);
+    var speed = rand(55, 105) * (1 + (roundDuration - timeLeft) / roundDuration * 0.6);
+    var b = {
+      x: x,
+      y: H + radius + 10,
+      r: radius,
+      kind: kind,
+      color: kind === "gold" ? "#ffd23f" : (kind === "bomb" ? "#3a3a3a" : COLORS[(Math.random() * COLORS.length) | 0]),
+      vy: -speed,
+      sway: rand(0, Math.PI * 2),
+      swaySpeed: rand(1, 2.4),
+      swayAmp: rand(8, 22),
+      baseX: x,
+      alive: true
+    };
+    balloons.push(b);
+  }
+
+  function addParticles(x, y, color, count) {
+    for (var i = 0; i < count; i++) {
+      var ang = rand(0, Math.PI * 2);
+      var sp = rand(40, 220);
+      particles.push({
+        x: x, y: y,
+        vx: Math.cos(ang) * sp,
+        vy: Math.sin(ang) * sp,
+        life: rand(0.4, 0.8),
+        age: 0,
+        color: color,
+        size: rand(3, 7)
+      });
+    }
+  }
+
+  function addFloater(x, y, text, color) {
+    floaters.push({ x: x, y: y, text: text, color: color, age: 0, life: 0.9 });
+  }
+
+  function popBalloon(b) {
+    b.alive = false;
+    if (b.kind === "bomb") {
+      score = Math.max(0, score - 5);
+      addParticles(b.x, b.y, "#555", 22);
+      addFloater(b.x, b.y, "-5", "#ff2b2b");
+      buzz();
+    } else if (b.kind === "gold") {
+      score += 5;
+      addParticles(b.x, b.y, "#ffd23f", 26);
+      addFloater(b.x, b.y, "+5", "#e6a700");
+      pop(950, "triangle");
+    } else {
+      score += 1;
+      addParticles(b.x, b.y, b.color, 16);
+      addFloater(b.x, b.y, "+1", "#fff");
+      pop(rand(500, 800), "sine");
+    }
+    if(window.AdrientGame)window.AdrientGame.setHighScore(score);
+    updateHud();
+  }
+
+  function updateHud() {
+    scoreEl.textContent = "⭐ " + score;
+    timeEl.textContent = "⏱ " + Math.ceil(timeLeft);
+    if (timeLeft <= 5 && running) timeEl.classList.add("low");
+    else timeEl.classList.remove("low");
+  }
+
+  // ---- Drawing ----
+  function drawBalloon(b) {
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    // string
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, b.r * 0.95);
+    ctx.quadraticCurveTo(b.r * 0.3, b.r * 1.5, 0, b.r * 1.9);
+    ctx.stroke();
+
+    // body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, b.r * 0.85, b.r, 0, 0, Math.PI * 2);
+    ctx.fillStyle = b.color;
+    ctx.fill();
+
+    // knot
+    ctx.beginPath();
+    ctx.moveTo(-b.r * 0.16, b.r * 0.92);
+    ctx.lineTo(b.r * 0.16, b.r * 0.92);
+    ctx.lineTo(0, b.r * 1.08);
+    ctx.closePath();
+    ctx.fillStyle = b.color;
+    ctx.fill();
+
+    // shine
+    ctx.beginPath();
+    ctx.ellipse(-b.r * 0.28, -b.r * 0.32, b.r * 0.18, b.r * 0.28, -0.5, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
+    ctx.fill();
+
+    // emoji/marker for special
+    if (b.kind === "gold") {
+      ctx.font = "bold " + (b.r * 0.9) + "px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("⭐", 0, 0);
+    } else if (b.kind === "bomb") {
+      ctx.font = (b.r * 1.1) + "px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText("💣", 0, 0);
+    }
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    for (var i = 0; i < balloons.length; i++) drawBalloon(balloons[i]);
+
+    // particles
+    for (var j = 0; j < particles.length; j++) {
+      var p = particles[j];
+      var alpha = Math.max(0, 1 - p.age / p.life);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // floaters
+    for (var k = 0; k < floaters.length; k++) {
+      var f = floaters[k];
+      var a = Math.max(0, 1 - f.age / f.life);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = f.color;
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.lineWidth = 3;
+      ctx.font = "bold 26px sans-serif";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.strokeText(f.text, f.x, f.y);
+      ctx.fillText(f.text, f.x, f.y);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- Update ----
+  function update(dt) {
+    if (running) {
+      timeLeft -= dt;
+      if (timeLeft <= 0) { timeLeft = 0; endRound(); }
+      updateHud();
+
+      // difficulty ramp: spawn interval shrinks
+      var progress = (roundDuration - timeLeft) / roundDuration; // 0 -> 1
+      spawnInterval = 0.95 - progress * 0.62; // ~0.95s down to ~0.33s
+      spawnTimer += dt;
+      while (spawnTimer >= spawnInterval) {
+        spawnTimer -= spawnInterval;
+        spawnBalloon();
+      }
+    }
+
+    for (var i = balloons.length - 1; i >= 0; i--) {
+      var b = balloons[i];
+      b.y += b.vy * dt;
+      b.sway += b.swaySpeed * dt;
+      b.x = b.baseX + Math.sin(b.sway) * b.swayAmp;
+      if (b.x < b.r) b.x = b.r;
+      if (b.x > W - b.r) b.x = W - b.r;
+      if (!b.alive || b.y < -b.r - 20) {
+        balloons.splice(i, 1);
+      }
+    }
+
+    for (var j = particles.length - 1; j >= 0; j--) {
+      var p = particles[j];
+      p.age += dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 300 * dt;
+      if (p.age >= p.life) particles.splice(j, 1);
+    }
+
+    for (var k = floaters.length - 1; k >= 0; k--) {
+      var f = floaters[k];
+      f.age += dt;
+      f.y -= 40 * dt;
+      if (f.age >= f.life) floaters.splice(k, 1);
+    }
+  }
+
+  var paused = false, rafId = null;
+  function loop(ts) {
+    if (paused) return;
+    if (!lastTs) lastTs = ts;
+    var dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    if (dt > 0.1) dt = 0.1; // clamp
+    update(dt);
+    render();
+    rafId = requestAnimationFrame(loop);
+  }
+
+  window.addEventListener('adrient:pause', function () {
+    paused = true;
+    if (rafId) cancelAnimationFrame(rafId);
+  });
+  window.addEventListener('adrient:resume', function () {
+    if (paused) {
+      paused = false;
+      lastTs = performance.now();
+      rafId = requestAnimationFrame(loop);
+    }
+  });
+
+  // ---- Input ----
+  function hitTest(px, py) {
+    // topmost (last drawn) first
+    for (var i = balloons.length - 1; i >= 0; i--) {
+      var b = balloons[i];
+      if (!b.alive) continue;
+      var dx = (px - b.x) / (b.r * 0.95);
+      var dy = (py - b.y) / (b.r * 1.1);
+      if (dx * dx + dy * dy <= 1) {
+        popBalloon(b);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function pointFromEvent(e) {
+    var rect = cv.getBoundingClientRect();
+    var cx, cy;
+    if (e.touches && e.touches.length) {
+      cx = e.touches[0].clientX; cy = e.touches[0].clientY;
+    } else if (e.changedTouches && e.changedTouches.length) {
+      cx = e.changedTouches[0].clientX; cy = e.changedTouches[0].clientY;
+    } else {
+      cx = e.clientX; cy = e.clientY;
+    }
+    return { x: cx - rect.left, y: cy - rect.top };
+  }
+
+  function onTouch(e) {
+    if (!running) return;
+    e.preventDefault();
+    var pts = e.changedTouches;
+    var rect = cv.getBoundingClientRect();
+    if (pts && pts.length) {
+      for (var i = 0; i < pts.length; i++) {
+        hitTest(pts[i].clientX - rect.left, pts[i].clientY - rect.top);
+      }
+    } else {
+      var p = pointFromEvent(e);
+      hitTest(p.x, p.y);
+    }
+  }
+
+  cv.addEventListener("touchstart", onTouch, { passive: false });
+  cv.addEventListener("mousedown", function (e) {
+    if (!running) return;
+    var p = pointFromEvent(e);
+    hitTest(p.x, p.y);
+  });
+
+  // ---- Round control ----
+  function startRound() {
+    audio();
+    resize();
+    balloons = []; particles = []; floaters = [];
+    score = 0;
+    timeLeft = roundDuration;
+    spawnTimer = 0;
+    spawnInterval = 0.95;
+    running = true;
+    overlay.classList.add("hidden");
+    finalScoreEl.classList.add("hidden");
+    updateHud();
+    // seed a few
+    for (var i = 0; i < 3; i++) { spawnBalloon(); balloons[balloons.length - 1].y = H - i * 70; }
+  }
+
+  function endRound() {
+    running = false;
+    if(window.AdrientGame)window.AdrientGame.setHighScore(score);
+    timeEl.classList.remove("low");
+    ovTitle.textContent = "⏰ Time's Up!";
+    ovText.textContent = "Your score:";
+    finalScoreEl.textContent = "⭐ " + score;
+    finalScoreEl.classList.remove("hidden");
+    startBtn.textContent = "Play Again";
+    overlay.classList.remove("hidden");
+  }
+
+  startBtn.addEventListener("click", startRound);
+
+  // init
+  resize();
+  updateHud();
+  rafId = requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

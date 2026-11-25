@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Modern Reversi</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --board-color: #2e7d32;
+            --cell-color: #388e3c;
+            --cell-border: #2e7d32;
+            --black-piece: #212121;
+            --white-piece: #ffffff;
+            --accent-color: #4caf50;
+            --text-color: #333;
+            /* Responsive cell size: shrinks to fit narrow phones, caps at 50px.
+               8 cells + 7*2px gaps must fit within ~96vw. */
+            --cell-size: min(50px, (96vw - 14px) / 8);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            color: var(--text-color);
+        }
+
+        .game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .header {
+            text-align: center;
+        }
+
+        .stats {
+            display: flex;
+            gap: 40px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .piece-preview {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            border: 1px solid #ccc;
+        }
+
+        .black-preview { background-color: var(--black-piece); }
+        .white-preview { background-color: var(--white-piece); }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(8, var(--cell-size));
+            grid-template-rows: repeat(8, var(--cell-size));
+            background-color: var(--cell-border);
+            border: 5px solid var(--cell-border);
+            border-radius: 4px;
+            gap: 2px;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        @media (min-width: 500px) {
+            :root {
+                --cell-size: 60px;
+            }
+        }
+
+        .cell {
+            background-color: var(--cell-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+
+        .piece {
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            transition: transform 0.3s ease, background-color 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .piece.black { background-color: var(--black-piece); }
+        .piece.white { background-color: var(--white-piece); }
+
+        .legal-move-indicator {
+            width: 24%;
+            height: 24%;
+            background-color: rgba(0, 0, 0, 0.15);
+            border-radius: 50%;
+        }
+
+        .status-msg {
+            height: 24px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.2s;
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        button:hover {
+            background-color: #388e3c;
+        }
+
+        button:active {
+            transform: translateY(1px);
+        }
+
+        .mode-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .mode-overlay.show { display: flex; }
+        .mode-modal {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 1.5rem;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+            max-width: 80vw;
+            color: var(--text-color);
+        }
+        .mode-modal h2 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+        .mode-modal p { margin: 0 0 1.25rem; color: #777; }
+        .mode-modal .mode-btns { display: flex; flex-direction: column; gap: 0.75rem; }
+    </style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/reversi.svg">
+    <link rel="manifest" href="/games/reversi.webmanifest">
+    <meta name="theme-color" content="#2E7D32">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Reversi">
+    <link rel="apple-touch-icon" href="/games/icons/reversi.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="reversi",NAME="Reversi",COLOR="#2E7D32",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+
+    <div class="game-container">
+        <div class="header">
+            <h1>Reversi</h1>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="piece-preview black-preview"></div>
+                    <span id="black-score">2</span>
+                </div>
+                <div class="stat-item">
+                    <div class="piece-preview white-preview"></div>
+                    <span id="white-score">2</span>
+                </div>
+            </div>
+            <div id="status" class="status-msg">Your turn</div>
+        </div>
+
+        <div id="board"></div>
+
+        <div class="controls">
+            <button onclick="resetGame()">New Game</button>
+        </div>
+    </div>
+
+    <div id="modeOverlay" class="mode-overlay">
+        <div class="mode-modal">
+            <h2>Reversi</h2>
+            <p>Choose a mode</p>
+            <div class="mode-btns">
+                <button id="modeAi">🤖 vs Computer</button>
+                <button id="modeTwo">👥 2 Players</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/games/game-multiplayer.js?v=2"></script>
+    <script>
+        const BOARD_SIZE = 8;
+        const BLACK = 1; // Human
+        const WHITE = 2; // AI
+        const EMPTY = 0;
+
+        const WEIGHTS = [
+            [100, -20, 10,  5,  5, 10, -20, 100],
+            [-20, -50, -2, -2, -2, -2, -50, -20],
+            [ 10,  -2,  5,  1,  1,  5,  -2,  10],
+            [  5,  -2,  1,  0,  0,  1,  -2,   5],
+            [  5,  -2,  1,  0,  0,  1,  -2,   5],
+            [ 10,  -2,  5,  1,  1,  5,  -2,  10],
+            [-20, -50, -2, -2, -2, -2, -50, -20],
+            [100, -20, 10,  5,  5, 10, -20, 100]
+        ];
+
+        let board = [];
+        let currentPlayer = BLACK;
+        let gameOver = false;
+        let passCount = 0;
+        let mode = 'ai'; // 'ai' = vs computer, '2p' = pass-and-play hot seat, 'online' = networked
+        let mySide = BLACK; // which side this client controls when online
+
+        const boardEl = document.getElementById('board');
+        const blackScoreEl = document.getElementById('black-score');
+        const whiteScoreEl = document.getElementById('white-score');
+        const statusEl = document.getElementById('status');
+        const modeOverlay = document.getElementById('modeOverlay');
+
+        // In 2p both sides are human; in ai only BLACK is human; online only
+        // your own side is human (your turn when currentPlayer===mySide).
+        function isHumanTurn() {
+            if (mode === 'online') return currentPlayer === mySide;
+            return mode === '2p' ? true : currentPlayer === BLACK;
+        }
+        function sideName(side) {
+            if (mode === '2p') return side === BLACK ? 'Black' : 'White';
+            return side === BLACK ? 'You' : 'Computer';
+        }
+        function turnStatus() {
+            if (mode === 'online') return currentPlayer === mySide ? "Your turn" : "Opponent's turn";
+            return mode === '2p' ? sideName(currentPlayer) + "'s turn"
+                                 : (currentPlayer === BLACK ? "Your turn" : "Computer is thinking...");
+        }
+
+        function initBoard() {
+            board = Array(64).fill(EMPTY);
+            // Starting position
+            const mid = 28;
+            board[mid] = WHITE;
+            board[mid + 1] = BLACK;
+            board[mid + 16] = BLACK;
+            board[mid + 17] = WHITE;
+        }
+
+        function render() {
+            boardEl.innerHTML = '';
+            const legalMoves = getLegalMoves(board, currentPlayer);
+            
+            let blackCount = 0;
+            let whiteCount = 0;
+
+            for (let i = 0; i < 64; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                cell.onclick = () => handleCellClick(i);
+
+                if (board[i] !== EMPTY) {
+                    const piece = document.createElement('div');
+                    piece.className = `piece ${board[i] === BLACK ? 'black' : 'white'}`;
+                    cell.appendChild(piece);
+                    if (board[i] === BLACK) blackCount++;
+                    else whiteCount++;
+                } else if (!gameOver && isHumanTurn() && legalMoves.includes(i)) {
+                    const indicator = document.createElement('div');
+                    indicator.className = 'legal-move-indicator';
+                    cell.appendChild(indicator);
+                }
+
+                boardEl.appendChild(cell);
+            }
+
+            blackScoreEl.textContent = blackCount;
+            whiteScoreEl.textContent = whiteCount;
+        }
+
+        function getLegalMoves(currentBoard, player) {
+            const moves = [];
+            for (let i = 0; i < 64; i++) {
+                if (canMove(currentBoard, player, i)) {
+                    moves.push(i);
+                }
+            }
+            return moves;
+        }
+
+        function canMove(currentBoard, player, index) {
+            if (currentBoard[index] !== EMPTY) return false;
+            const opponent = player === BLACK ? WHITE : BLACK;
+            const directions = [
+                [-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]
+            ];
+
+            for (let [dr, dc] of directions) {
+                let r = Math.floor(index / 8) + dr;
+                let c = index % 8 + dc;
+                let count = 0;
+
+                while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+                    const targetIdx = r * 8 + c;
+                    if (currentBoard[targetIdx] === opponent) {
+                        count++;
+                    } else if (currentBoard[targetIdx] === player) {
+                        if (count > 0) return true;
+                        break;
+                    } else {
+                        break;
+                    }
+                    r += dr;
+                    c += dc;
+                }
+            }
+            return false;
+        }
+
+        function executeMove(currentBoard, player, index) {
+            const newBoard = [...currentBoard];
+            newBoard[index] = player;
+            const opponent = player === BLACK ? WHITE : BLACK;
+            const directions = [
+                [-1,-1], [-1,0], [-1,1], [0,-1], [0,1], [1,-1], [1,0], [1,1]
+            ];
+
+            for (let [dr, dc] of directions) {
+                let r = Math.floor(index / 8) + dr;
+                let c = index % 8 + dc;
+                let path = [];
+
+                while (r >= 0 && r < 8 && c >= 0 && c < 8) {
+                    const targetIdx = r * 8 + c;
+                    if (newBoard[targetIdx] === opponent) {
+                        path.push(targetIdx);
+                    } else if (newBoard[targetIdx] === player) {
+                        path.forEach(idx => newBoard[idx] = player);
+                        break;
+                    } else {
+                        break;
+                    }
+                    r += dr;
+                    c += dc;
+                }
+            }
+            return newBoard;
+        }
+
+        function handleCellClick(index) {
+            if (gameOver || !isHumanTurn()) return;
+
+            const mover = currentPlayer;
+            if (canMove(board, mover, index)) {
+                if (mode === 'online') GameMP.send({ index, player: mover });
+                applyMove(mover, index);
+            }
+        }
+
+        // Shared move-application path used by both the local click handler and
+        // applyRemoteMove, so both peers run identical flip / skip / turn logic.
+        function applyMove(mover, index) {
+            board = executeMove(board, mover, index);
+            currentPlayer = mover === BLACK ? WHITE : BLACK;
+            passCount = 0;
+            render();
+            checkGameState();
+            if (gameOver) return;
+            if (mode === '2p' || mode === 'online') {
+                advanceTwoPlayer();
+            } else {
+                statusEl.textContent = "Computer is thinking...";
+                setTimeout(aiTurn, 600);
+            }
+        }
+
+        // Pass-and-play turn advance: if the side to move has no legal moves,
+        // skip them (counting a pass) and hand back to the other human.
+        function advanceTwoPlayer() {
+            const moves = getLegalMoves(board, currentPlayer);
+            if (moves.length === 0) {
+                passCount++;
+                const passer = currentPlayer;
+                currentPlayer = passer === BLACK ? WHITE : BLACK;
+                checkGameState();
+                if (gameOver) { render(); return; }
+                const passerName = mode === 'online'
+                    ? (passer === mySide ? "You have" : "Opponent has")
+                    : sideName(passer) + " has";
+                statusEl.textContent = passerName + " no move — " + turnStatus();
+                render();
+                return;
+            }
+            statusEl.textContent = turnStatus();
+            render();
+        }
+
+        function aiTurn() {
+            const moves = getLegalMoves(board, WHITE);
+            if (moves.length > 0) {
+                const bestMove = minimax(board, 3, -Infinity, Infinity, true).move;
+                board = executeMove(board, WHITE, bestMove);
+                currentPlayer = BLACK;
+                passCount = 0;
+                statusEl.textContent = "Your turn";
+            } else {
+                passCount++;
+                currentPlayer = BLACK;
+                statusEl.textContent = "Computer passes";
+            }
+            
+            render();
+            checkGameState();
+            if (!gameOver && currentPlayer === BLACK) {
+                const playerMoves = getLegalMoves(board, BLACK);
+                if (playerMoves.length === 0) {
+                    passCount++;
+                    statusEl.textContent = "You pass";
+                    setTimeout(() => {
+                        currentPlayer = WHITE;
+                        aiTurn();
+                    }, 1000);
+                }
+            }
+        }
+
+        function checkGameState() {
+            const blackMoves = getLegalMoves(board, BLACK);
+            const whiteMoves = getLegalMoves(board, WHITE);
+            const isFull = !board.includes(EMPTY);
+
+            if (isFull || (blackMoves.length === 0 && whiteMoves.length === 0) || passCount >= 2) {
+                gameOver = true;
+                const b = board.filter(x => x === BLACK).length;
+                const w = board.filter(x => x === WHITE).length;
+                if (mode === 'online') {
+                    if (b === w) statusEl.textContent = "It's a Draw!";
+                    else {
+                        const winner = b > w ? BLACK : WHITE;
+                        statusEl.textContent = winner === mySide ? "You Win!" : "Opponent Wins!";
+                    }
+                } else if (mode === '2p') {
+                    if (b > w) statusEl.textContent = sideName(BLACK) + " Wins!";
+                    else if (w > b) statusEl.textContent = sideName(WHITE) + " Wins!";
+                    else statusEl.textContent = "It's a Draw!";
+                } else {
+                    if (b > w) statusEl.textContent = "You Win!";
+                    else if (w > b) statusEl.textContent = "Computer Wins!";
+                    else statusEl.textContent = "It's a Draw!";
+                }
+            }
+        }
+
+        function evaluate(currentBoard) {
+            let score = 0;
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    const idx = r * 8 + c;
+                    if (currentBoard[idx] === WHITE) score += WEIGHTS[r][c];
+                    else if (currentBoard[idx] === BLACK) score -= WEIGHTS[r][c];
+                }
+            }
+            return score;
+        }
+
+        function minimax(currentBoard, depth, alpha, beta, isMaximizing) {
+            if (depth === 0) {
+                return { score: evaluate(currentBoard) };
+            }
+
+            const player = isMaximizing ? WHITE : BLACK;
+            const moves = getLegalMoves(currentBoard, player);
+
+            if (moves.length === 0) {
+                // If no moves, it's effectively a pass, but for minimax we just return evaluation
+                return { score: evaluate(currentBoard) };
+            }
+
+            let bestMove = moves[0];
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (const move of moves) {
+                    const nextBoard = executeMove(currentBoard, WHITE, move);
+                    const evalResult = minimax(nextBoard, depth - 1, alpha, beta, false);
+                    if (evalResult.score > maxEval) {
+                        maxEval = evalResult.score;
+                        bestMove = move;
+                    }
+                    alpha = Math.max(alpha, evalResult.score);
+                    if (beta <= alpha) break;
+                }
+                return { score: maxEval, move: bestMove };
+            } else {
+                let minEval = Infinity;
+                for (const move of moves) {
+                    const nextBoard = executeMove(currentBoard, BLACK, move);
+                    const evalResult = minimax(nextBoard, depth - 1, alpha, beta, true);
+                    if (evalResult.score < minEval) {
+                        minEval = evalResult.score;
+                        bestMove = move;
+                    }
+                    beta = Math.min(beta, evalResult.score);
+                    if (beta <= alpha) break;
+                }
+                return { score: minEval, move: bestMove };
+            }
+        }
+
+        function startGame() {
+            initBoard();
+            currentPlayer = BLACK;
+            gameOver = false;
+            passCount = 0;
+            statusEl.textContent = turnStatus();
+            render();
+        }
+
+        // "New Game" returns to the mode picker so you can switch AI / 2-player.
+        // When online, it restarts the shared board and tells the opponent.
+        function resetGame() {
+            if (mode === 'online') { startGame(); GameMP.sendReset(); return; }
+            showModeSelect();
+        }
+
+        function showModeSelect() { modeOverlay.classList.add('show'); }
+        function startMode(m) {
+            mode = m;
+            modeOverlay.classList.remove('show');
+            startGame();
+        }
+        document.getElementById('modeAi').addEventListener('click', function(){ startMode('ai'); });
+        document.getElementById('modeTwo').addEventListener('click', function(){ startMode('2p'); });
+
+        // --- Online multiplayer (drop-in via game-multiplayer.js) ---
+        // Apply an opponent's move. m.player is the side that moved; ignore our
+        // own echo and only apply when it is the opponent's turn. Runs through the
+        // shared applyMove path so flip/skip/turn logic matches the local client.
+        function applyRemoteMove(m) {
+            if (mode !== 'online' || gameOver) return;
+            if (m.player === mySide) return;        // ignore our own echo
+            if (currentPlayer !== m.player) return; // only when it's their turn
+            if (canMove(board, m.player, m.index)) {
+                applyMove(m.player, m.index);
+            }
+        }
+        GameMP.setup({ gameName: 'Reversi' });
+        GameMP.onReady(function (role) {
+            // role 0 = host → Black (goes first); role 1 = guest → White.
+            mode = 'online';
+            mySide = role === 0 ? BLACK : WHITE;
+            modeOverlay.classList.remove('show');
+            startGame();
+        });
+        GameMP.onMove(applyRemoteMove);
+        GameMP.onReset(function () { if (mode === 'online') startGame(); });
+        GameMP.onPeerLeft(function () {
+            if (mode !== 'online') return;
+            gameOver = true;
+            statusEl.textContent = "Opponent left.";
+        });
+
+        // Render an idle board behind the picker, then ask for a mode.
+        startGame();
+        showModeSelect();
+    </script>
+</body>
+</html>

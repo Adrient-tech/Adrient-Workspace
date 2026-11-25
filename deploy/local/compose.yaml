@@ -1,0 +1,239 @@
+# Docker-only local dev stack for machines without Nix/process-compose.
+# Runs the stateful dependencies in containers; the Go backend and the web build
+# run natively via deploy/local/up.sh (fast rebuilds for Playwright checks).
+#
+# Mirrors deploy/process-compose/process-compose.yaml: same ports, users and
+# local-dev credentials (NEVER use these in production).
+name: adrient-local
+
+services:
+  postgres:
+    image: postgres:17.2-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: adrient
+      POSTGRES_DB: adrient
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports: ["127.0.0.1:5533:5432"]
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/postgres:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "adrient"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  zitadel:
+    image: ghcr.io/zitadel/zitadel:v2.71.0
+    restart: unless-stopped
+    command: >
+      start-from-init
+      --masterkey MasterkeyNeedsToHave32Characters
+      --tlsMode disabled
+    environment:
+      ZITADEL_EXTERNALDOMAIN: localhost
+      ZITADEL_EXTERNALPORT: "8081"
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_PORT: "8081"
+      ZITADEL_DATABASE_POSTGRES_HOST: postgres
+      ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+      ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+      ZITADEL_DATABASE_POSTGRES_USER_USERNAME: adrient
+      ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+      ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: adrient
+      ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+      ZITADEL_FIRSTINSTANCE_INSTANCENAME: adrient-dev
+      ZITADEL_FIRSTINSTANCE_PATPATH: /data/bootstrap-pat.txt
+      ZITADEL_FIRSTINSTANCE_ORG_NAME: adrient-dev
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME: Adrient
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME: Admin
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: admin@adrient.localtest.me
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "DevPassword!1"
+      ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: bootstrap
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: Bootstrap SA
+      ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+    ports: ["127.0.0.1:8081:8081"]
+    # The PAT lands where create-oidc-app.sh looks for it (PROJECT_ROOT=<data>/root).
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/root/deploy/zitadel/data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  rustfs:
+    image: rustfs/rustfs:1.0.0-beta.7
+    restart: unless-stopped
+    # Run as root locally so it can write the bind-mounted data dir (owned by
+    # the host user). Local dev only.
+    user: "0:0"
+    environment:
+      RUSTFS_ACCESS_KEY: adrient
+      RUSTFS_SECRET_KEY: "DevPassword!1"
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9100"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: ":9101"
+      RUSTFS_OBS_LOG_DIRECTORY: ""
+    ports: ["127.0.0.1:9100:9100", "127.0.0.1:9101:9101"]
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/rustfs:/data
+
+  # ---------------------------------------------------------------------------
+  # Forgejo (git hosting, GPL-3.0, separate service) reverse-proxied by Adrient
+  # at /git/ with reverse-proxy SSO (X-WEBAUTH-USER set by the Go backend).
+  # Branding lives in deploy/forgejo/custom (mounted over /data/gitea).
+  # ---------------------------------------------------------------------------
+  # Meet SFU (LiveKit, Apache-2.0) with built-in TURN. The config (with
+  # generated keys) is rendered by stack.sh from deploy/livekit/*.tmpl into
+  # $ADRIENT_LOCAL_DATA/livekit/ and never committed.
+  livekit:
+    image: livekit/livekit-server:v1.13.11
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    # Host networking (as in production): Docker's UDP proxy rewrites source
+    # addresses and breaks ICE. The config binds 127.0.0.1 only, so nothing
+    # is reachable from the LAN: 7880 ws, 7881 ICE/TCP, 7882/udp media,
+    # 3478/udp TURN.
+    network_mode: host
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+  # Redis for LiveKit <-> Egress coordination (loopback only; host network).
+  meet-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--port", "6390", "--bind", "127.0.0.1", "--save", "", "--appendonly", "no"]
+    network_mode: host
+
+  # Meet recording (LiveKit Egress, Apache-2.0). Renders the call in headless
+  # Chrome and uploads the MP4 to the RustFS bucket meet-recordings; the
+  # backend then copies it into the host's Drive.
+  livekit-egress:
+    image: livekit/egress:v1.15.0
+    restart: unless-stopped
+    network_mode: host
+    cap_add: [SYS_ADMIN]
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/livekit/egress.yaml:/etc/egress.yaml:ro
+    depends_on:
+      - livekit
+      - meet-redis
+
+  forgejo:
+    image: codeberg.org/forgejo/forgejo:11
+    restart: unless-stopped
+    environment:
+      USER_UID: "1000"
+      USER_GID: "1000"
+      FORGEJO____APP_NAME: Adrient Git
+      FORGEJO__server__DOMAIN: workspace.localtest.me
+      FORGEJO__server__ROOT_URL: http://workspace.localtest.me:8080/git/
+      FORGEJO__server__HTTP_PORT: "3000"
+      FORGEJO__server__DISABLE_SSH: "true"
+      FORGEJO__server__OFFLINE_MODE: "true"
+      FORGEJO__database__DB_TYPE: sqlite3
+      FORGEJO__security__INSTALL_LOCK: "true"
+      FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES: "*"
+      FORGEJO__service__ENABLE_REVERSE_PROXY_AUTHENTICATION: "true"
+      FORGEJO__service__ENABLE_REVERSE_PROXY_AUTO_REGISTRATION: "true"
+      FORGEJO__service__ENABLE_REVERSE_PROXY_EMAIL: "true"
+      FORGEJO__service__DISABLE_REGISTRATION: "true"
+      FORGEJO__service__ALLOW_ONLY_EXTERNAL_REGISTRATION: "false"
+      FORGEJO__service__ENABLE_NOTIFY_MAIL: "false"
+      FORGEJO__ui__DEFAULT_THEME: forgejo-auto
+      FORGEJO__ui__SHOW_USER_EMAIL: "false"
+      FORGEJO__other__SHOW_FOOTER_VERSION: "false"
+      FORGEJO__other__SHOW_FOOTER_TEMPLATE_LOAD_TIME: "false"
+      FORGEJO__other__SHOW_FOOTER_POWERED_BY: "false"
+      FORGEJO__webhook__ALLOWED_HOST_LIST: "*"
+      FORGEJO__log__LEVEL: warn
+    ports: ["127.0.0.1:3300:3000"]
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/forgejo:/data
+      - ../forgejo/custom/public:/data/gitea/public:ro
+      - ../forgejo/custom/templates:/data/gitea/templates:ro
+
+  # ---------------------------------------------------------------------------
+  # Twenty CRM (AGPL-3.0, separate service) reverse-proxied by Adrient on the
+  # crm.workspace.localtest.me host. Own Postgres + Redis.
+  # ---------------------------------------------------------------------------
+  twenty-db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: default
+      POSTGRES_USER: twenty
+      POSTGRES_PASSWORD: "DevPassword!1"
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/twenty-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "twenty", "-d", "default"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  twenty-redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  twenty-server: &twenty
+    image: twentycrm/twenty:v2.9.0
+    restart: unless-stopped
+    environment: &twenty-env
+      NODE_PORT: "3000"
+      SERVER_URL: http://crm.workspace.localtest.me:8080
+      PG_DATABASE_URL: postgres://twenty:DevPassword!1@twenty-db:5432/default
+      REDIS_URL: redis://twenty-redis:6379
+      STORAGE_TYPE: local
+      DISABLE_DB_MIGRATIONS: "false"
+      DISABLE_CRON_JOBS_REGISTRATION: "false"
+      IS_MULTIWORKSPACE_ENABLED: "false"
+      DEFAULT_SUBDOMAIN: crm
+      AUTH_PASSWORD_ENABLED: "true"
+      AUTH_SSO_ENABLED: "true"
+      # Local-dev secrets only.
+      ENCRYPTION_KEY: 0gxiT3CtLWXQ9QHnZRPHz4aS3g8q3A3j1CDOzhdMIoc=
+      APP_SECRET: fXK5h72ZcT6PtKLqLFfqyt7V9ITt0yXzeDvIWLD1W2U=
+    ports: ["127.0.0.1:3010:3000"]
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/twenty-storage:/app/packages/twenty-server/.local-storage
+    depends_on:
+      twenty-db: {condition: service_healthy}
+      twenty-redis: {condition: service_healthy}
+
+  # Twenty discovers Zitadel at the public issuer http://localhost:8081, which
+  # inside its container is itself. This sidecar shares Twenty's network
+  # namespace and forwards localhost:8081 to the zitadel service.
+  twenty-oidc-bridge:
+    image: alpine/socat:latest
+    restart: unless-stopped
+    network_mode: "service:twenty-server"
+    command: ["TCP-LISTEN:8081,fork,reuseaddr,bind=127.0.0.1", "TCP:zitadel:8081"]
+    depends_on:
+      zitadel: {condition: service_started}
+      twenty-server: {condition: service_started}
+
+  twenty-worker:
+    image: twentycrm/twenty:v2.9.0
+    restart: unless-stopped
+    command: ["yarn", "worker:prod"]
+    environment:
+      <<: *twenty-env
+      DISABLE_DB_MIGRATIONS: "true"
+      DISABLE_CRON_JOBS_REGISTRATION: "true"
+    volumes:
+      - ${ADRIENT_LOCAL_DATA:-${HOME}/.adrient-local}/twenty-storage:/app/packages/twenty-server/.local-storage
+    depends_on:
+      twenty-server: {condition: service_started}

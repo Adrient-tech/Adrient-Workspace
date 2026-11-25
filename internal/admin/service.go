@@ -1,0 +1,230 @@
+package admin
+
+import (
+	"context"
+	"net/url"
+	"sort"
+	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	adrientv1 "github.com/Adrient-tech/Adrient-Workspace/gen/go/adrient/v1"
+	"github.com/Adrient-tech/Adrient-Workspace/internal/auth"
+)
+
+// AdminChecker reports whether the user holds a per-org admin role (an
+// org_admins grant). server.go injects a closure backed by the org_admins repo;
+// it's optional so admin.Service stays testable without a DB.
+type AdminChecker func(ctx context.Context, orgID, userID string) bool
+
+// Service implements adrientv1.AdminServiceServer over a Repository.
+type Service struct {
+	repo *Repository
+
+	// adminEmails is the lower-cased allowlist of bootstrap super-admins. A
+	// caller may mutate admin settings iff their email is here OR they hold an
+	// org_admins grant (isOrgAdmin). There is NO open fallback.
+	adminEmails map[string]struct{}
+	isOrgAdmin  AdminChecker
+
+	// defaultURLs maps a service id to a deployment-wide default external URL
+	// (e.g. ADRIENT_HOMEASSISTANT_URL set by the Helm chart when it deploys Home
+	// Assistant). It is used for any org that hasn't stored its own URL for that
+	// service. See WithDefaultExternalURLs.
+	defaultURLs map[string]string
+}
+
+// ServiceHomeAssistant is the service id of the Home Assistant app tile. Home
+// Assistant is bring-your-own: each org points the tile at its own instance by
+// storing an external_url for this id; the tile is hidden until a URL exists
+// (org setting or deployment default).
+const ServiceHomeAssistant = "homeassistant"
+
+// NewService constructs a Service. adminEmails is the raw value of the
+// ADRIENT_ADMIN_EMAILS env var (a comma-separated list of emails); pass "" to
+// leave the allowlist empty.
+//
+// Admin authorization model (see docs/rbac-design.md):
+//   - GetServiceSettings: allowed for any authenticated org member (read-only).
+//   - SetServiceSettings: requires the caller to be an admin — email in
+//     ADRIENT_ADMIN_EMAILS OR an org_admins grant (via the injected AdminChecker).
+//     There is no open fallback; an empty allowlist with no grant denies the write.
+func NewService(repo *Repository, adminEmails string) *Service {
+	allow := make(map[string]struct{})
+	for _, e := range strings.Split(adminEmails, ",") {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e != "" {
+			allow[e] = struct{}{}
+		}
+	}
+	return &Service{repo: repo, adminEmails: allow}
+}
+
+// WithAdminChecker injects the per-org admin predicate and returns the Service
+// for chaining. server.go calls this with a closure backed by the org_admins repo.
+func (s *Service) WithAdminChecker(c AdminChecker) *Service {
+	s.isOrgAdmin = c
+	return s
+}
+
+// WithDefaultExternalURLs installs deployment-wide default external URLs keyed
+// by service id, and returns the Service for chaining. A default is reported by
+// Get/SetServiceSettings for any org whose stored external_url for that service
+// is empty (no row, or a row with no URL); an org's own URL always wins. Blank
+// and invalid (non-http(s)) defaults are ignored and returned so the caller can
+// log them.
+func (s *Service) WithDefaultExternalURLs(defaults map[string]string) (*Service, []string) {
+	var rejected []string
+	for id, raw := range defaults {
+		u := strings.TrimSpace(raw)
+		if id == "" || u == "" {
+			continue
+		}
+		if err := validateExternalURL(id, u); err != nil {
+			rejected = append(rejected, id)
+			continue
+		}
+		if s.defaultURLs == nil {
+			s.defaultURLs = make(map[string]string)
+		}
+		s.defaultURLs[id] = u
+	}
+	sort.Strings(rejected)
+	return s, rejected
+}
+
+// withDefaults returns a copy of m with the deployment default external URLs
+// filled in for services the org hasn't pointed anywhere itself. A service with
+// no stored row gets an enabled entry (services are default-on); a stored row
+// keeps its enabled flag and only gains the URL when its own is empty.
+func (s *Service) withDefaults(m map[string]Setting) map[string]Setting {
+	if len(s.defaultURLs) == 0 {
+		return m
+	}
+	out := make(map[string]Setting, len(m)+len(s.defaultURLs))
+	for id, v := range m {
+		out[id] = v
+	}
+	for id, u := range s.defaultURLs {
+		cur, ok := out[id]
+		if !ok {
+			out[id] = Setting{ServiceID: id, Enabled: true, ExternalURL: u}
+			continue
+		}
+		if cur.ExternalURL == "" {
+			cur.ExternalURL = u
+			out[id] = cur
+		}
+	}
+	return out
+}
+
+// callerOrg validates the session and returns the caller's org id.
+func callerOrg(ctx context.Context) (string, error) {
+	if _, ok := auth.UserFromContext(ctx); !ok {
+		return "", status.Error(codes.Unauthenticated, "no session")
+	}
+	o, ok := auth.OrgFromContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Internal, "missing org context")
+	}
+	return o.ID, nil
+}
+
+// requireAdmin validates the session and enforces the admin allowlist for
+// mutating operations. It returns the caller's org id on success.
+func (s *Service) requireAdmin(ctx context.Context) (string, error) {
+	u, ok := auth.UserFromContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Unauthenticated, "no session")
+	}
+	o, ok := auth.OrgFromContext(ctx)
+	if !ok {
+		return "", status.Error(codes.Internal, "missing org context")
+	}
+	// Admin iff email is in the bootstrap allowlist OR an org_admins grant exists.
+	// No open fallback (see docs/rbac-design.md).
+	if _, ok := s.adminEmails[strings.ToLower(strings.TrimSpace(u.Email))]; ok {
+		return o.ID, nil
+	}
+	if s.isOrgAdmin != nil && s.isOrgAdmin(ctx, o.ID, u.ID) {
+		return o.ID, nil
+	}
+	return "", status.Error(codes.PermissionDenied, "admin privileges required")
+}
+
+// toProto builds a ServiceSettings response from the repo's settings map,
+// emitting entries in a stable (service-id) order.
+func toProto(orgID string, m map[string]Setting) *adrientv1.ServiceSettings {
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := &adrientv1.ServiceSettings{
+		OrgId:    orgID,
+		Settings: make([]*adrientv1.ServiceSetting, 0, len(ids)),
+	}
+	for _, id := range ids {
+		out.Settings = append(out.Settings, &adrientv1.ServiceSetting{
+			ServiceId:   m[id].ServiceID,
+			Enabled:     m[id].Enabled,
+			ExternalUrl: m[id].ExternalURL,
+		})
+	}
+	return out
+}
+
+// GetServiceSettings returns the org's explicit per-service toggles. Any service
+// id not present is enabled by default; the frontend applies that default.
+func (s *Service) GetServiceSettings(ctx context.Context, _ *adrientv1.GetServiceSettingsRequest) (*adrientv1.ServiceSettings, error) {
+	orgID, err := callerOrg(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m, err := s.repo.GetSettings(ctx, orgID)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "get service settings: %v", err)
+	}
+	return toProto(orgID, s.withDefaults(m)), nil
+}
+
+// validateExternalURL returns an error if rawURL is not a valid http(s) URL.
+// An empty string is valid (meaning "clear the override").
+func validateExternalURL(serviceID, rawURL string) error {
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return status.Errorf(codes.InvalidArgument,
+			"external_url for %q must be an http(s) URL or empty", serviceID)
+	}
+	return nil
+}
+
+// SetServiceSettings upserts the supplied toggles for the org and returns the
+// full, updated settings. Restricted to org admins.
+func (s *Service) SetServiceSettings(ctx context.Context, req *adrientv1.SetServiceSettingsRequest) (*adrientv1.ServiceSettings, error) {
+	orgID, err := s.requireAdmin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in := make([]Setting, 0, len(req.GetSettings()))
+	for _, ss := range req.GetSettings() {
+		if ss.GetServiceId() == "" {
+			return nil, status.Error(codes.InvalidArgument, "service_id is required")
+		}
+		extURL := strings.TrimSpace(ss.GetExternalUrl())
+		if err := validateExternalURL(ss.GetServiceId(), extURL); err != nil {
+			return nil, err
+		}
+		in = append(in, Setting{ServiceID: ss.GetServiceId(), Enabled: ss.GetEnabled(), ExternalURL: extURL})
+	}
+	m, err := s.repo.UpsertSettings(ctx, orgID, in)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "set service settings: %v", err)
+	}
+	return toProto(orgID, s.withDefaults(m)), nil
+}

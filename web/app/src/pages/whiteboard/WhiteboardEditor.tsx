@@ -1,0 +1,423 @@
+import { useEffect, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import {
+  Box,
+  Input,
+  IconButton,
+  Sheet as JoySheet,
+  Divider,
+  CircularProgress,
+  Chip,
+  Avatar,
+  AvatarGroup,
+  Tooltip,
+  Button,
+  Dropdown,
+  MenuButton,
+  Menu,
+  MenuItem,
+  ListDivider,
+  Snackbar,
+} from "@mui/joy";
+import FolderOpenIcon from "@mui/icons-material/FolderOpen";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import GestureIcon from "@mui/icons-material/Gesture";
+import ShareIcon from "@mui/icons-material/Share";
+import { Excalidraw } from "@excalidraw/excalidraw";
+import "@excalidraw/excalidraw/index.css";
+import { Header } from "../../components/Header";
+import type { User } from "../../api/types";
+import {
+  getWhiteboard,
+  renameWhiteboard,
+  saveWhiteboard,
+  collabURL,
+} from "./api";
+import { ShareDialog } from "./ShareDialog";
+import { BoardVersionHistory } from "../../components/versions/BoardVersionPreview";
+import { VERSION_RESTORED_MSG, isVersionRestoredMsg } from "../../components/versions/api";
+import {
+  importVsdx,
+  exportScene,
+  takePendingImport,
+  type ExportKind,
+} from "./sceneIO";
+
+/* eslint-disable @typescript-eslint/no-explicit-any -- Excalidraw types are heavy; we use loose typing. */
+
+const COLORS = [
+  "#3D5A80",
+  "#E0777D",
+  "#5B9279",
+  "#C46B45",
+  "#7A5980",
+  "#2A9D8F",
+  "#D9A441",
+  "#1D8348",
+];
+function colorFor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length];
+}
+
+interface Peer {
+  userId: string;
+  username: string;
+  color: string;
+  ts: number;
+}
+
+export function WhiteboardEditor({ user }: { user: User }) {
+  const { id = "" } = useParams();
+  const navigate = useNavigate();
+  const [title, setTitle] = useState("Untitled whiteboard");
+  const [initial, setInitial] = useState<any | null>(null);
+  const [status, setStatus] = useState<"connecting" | "live" | "offline">(
+    "connecting",
+  );
+  const [peers, setPeers] = useState<Record<string, Peer>>({});
+  const [shareOpen, setShareOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const apiRef = useRef<any>(null);
+  const [apiReady, setApiReady] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const applyingRemote = useRef(false);
+  const saveTimer = useRef<number | undefined>(undefined);
+  const bcastTimer = useRef<number | undefined>(undefined);
+
+  const me = {
+    userId: user.id,
+    username: user.display_name || user.email,
+    color: colorFor(user.id),
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    getWhiteboard(id)
+      .then((wb) => {
+        if (cancelled) return;
+        setTitle(wb.title);
+        let data: any = { elements: [], files: {} };
+        try {
+          if (wb.data) data = JSON.parse(wb.data);
+        } catch {
+          /* ignore */
+        }
+        setInitial({
+          elements: data.elements || [],
+          files: data.files || {},
+          scrollToContent: true,
+        });
+      })
+      .catch(() => !cancelled && setInitial({ elements: [], files: {} }));
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // Live collaboration: relay scene + presence over the WebSocket.
+  useEffect(() => {
+    const ws = new WebSocket(collabURL(id));
+    wsRef.current = ws;
+    ws.onopen = () => {
+      setStatus("live");
+      ws.send(JSON.stringify({ type: "presence", presence: me }));
+    };
+    ws.onclose = () => setStatus("offline");
+    ws.onerror = () => setStatus("offline");
+    ws.onmessage = (ev) => {
+      let m: any;
+      try {
+        m = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      if (isVersionRestoredMsg(m)) {
+        // A collaborator restored a version: reload so this tab's stale scene
+        // can't autosave over it.
+        window.clearTimeout(saveTimer.current);
+        window.location.reload();
+        return;
+      }
+      if (m.type === "scene" && apiRef.current) {
+        applyingRemote.current = true;
+        try {
+          if (m.files && Object.keys(m.files).length)
+            apiRef.current.addFiles(Object.values(m.files));
+          apiRef.current.updateScene({ elements: m.elements || [] });
+        } catch {
+          /* ignore */
+        }
+        window.setTimeout(() => {
+          applyingRemote.current = false;
+        }, 0);
+      } else if (m.type === "presence" && m.presence) {
+        const p = m.presence;
+        setPeers((cur) => ({ ...cur, [p.userId]: { ...p, ts: Date.now() } }));
+      }
+    };
+    return () => {
+      ws.close();
+      wsRef.current = null;
+    };
+  }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Presence heartbeat + prune.
+  useEffect(() => {
+    const send = () => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "presence", presence: me }));
+    };
+    const hb = window.setInterval(send, 4000);
+    const prune = window.setInterval(
+      () =>
+        setPeers((cur) => {
+          const now = Date.now();
+          const next: Record<string, Peer> = {};
+          for (const [k, p] of Object.entries(cur))
+            if (now - p.ts < 12000) next[k] = p;
+          return next;
+        }),
+      2000,
+    );
+    return () => {
+      window.clearInterval(hb);
+      window.clearInterval(prune);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function onChange(elements: readonly any[], _appState: any, files: any) {
+    if (applyingRemote.current) return;
+    // Broadcast scene (throttled).
+    window.clearTimeout(bcastTimer.current);
+    bcastTimer.current = window.setTimeout(() => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "scene", elements, files }));
+    }, 250);
+    // Autosave.
+    window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      saveWhiteboard(id, JSON.stringify({ elements, files })).catch(() => {});
+    }, 1500);
+  }
+
+  async function runImport(file: File) {
+    const api = apiRef.current;
+    if (!api) return;
+    try {
+      const r = await importVsdx(api, file);
+      setNotice(
+        `Imported ${r.elements} element${r.elements === 1 ? "" : "s"} from ${r.pages} page${r.pages === 1 ? "" : "s"}`,
+      );
+    } catch (e) {
+      setNotice(`Couldn't import ${file.name}: ${(e as Error).message}`);
+    }
+  }
+
+  // A .vsdx chosen on the list page ("Import .vsdx") lands here once.
+  useEffect(() => {
+    if (!apiReady || initial === null) return;
+    const f = takePendingImport(id);
+    if (f) void runImport(f);
+  }, [apiReady, initial, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function runExport(kind: ExportKind) {
+    if (!apiRef.current) return;
+    try {
+      await exportScene(apiRef.current, kind, title);
+    } catch (e) {
+      setNotice(`Export failed: ${(e as Error).message}`);
+    }
+  }
+
+  async function commitTitle() {
+    const t = title.trim() || "Untitled whiteboard";
+    setTitle(t);
+    try {
+      await renameWhiteboard(id, t);
+    } catch {
+      /* keep local */
+    }
+  }
+
+  if (initial === null) {
+    return (
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  const peerList = Object.values(peers);
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+      <Header user={user} />
+      <JoySheet
+        variant="plain"
+        sx={{ px: 2, py: 0.5, bgcolor: "background.body" }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <IconButton
+            variant="plain"
+            aria-label="Back to Whiteboards"
+            onClick={() => navigate("/whiteboard")}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+          <GestureIcon sx={{ color: "#C46B45", fontSize: 26 }} />
+          <Input
+            value={title}
+            variant="plain"
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+            }}
+            sx={{
+              fontSize: "1.1rem",
+              fontWeight: 500,
+              "--Input-focusedThickness": "0",
+              px: 0.5,
+              minWidth: 0,
+              flex: 1,
+              maxWidth: { xs: 160, sm: "none" },
+            }}
+            slotProps={{ input: { "aria-label": "Whiteboard title" } }}
+          />
+          <Box sx={{ flex: 1 }} />
+          <Box
+            sx={{
+              display: { xs: "none", sm: "flex" },
+              alignItems: "center",
+              gap: 1,
+            }}
+          >
+            <AvatarGroup size="sm">
+              {peerList.map((p) => (
+                <Tooltip key={p.userId} title={p.username}>
+                  <Avatar sx={{ bgcolor: p.color, color: "#fff" }}>
+                    {p.username.charAt(0).toUpperCase()}
+                  </Avatar>
+                </Tooltip>
+              ))}
+            </AvatarGroup>
+          </Box>
+          <Dropdown>
+            <MenuButton
+              size="sm"
+              variant="outlined"
+              startDecorator={<FolderOpenIcon />}
+              data-testid="whiteboard-file-menu"
+            >
+              File
+            </MenuButton>
+            <Menu size="sm" placement="bottom-end">
+              <MenuItem onClick={() => fileInput.current?.click()}>
+                Import Visio (.vsdx)…
+              </MenuItem>
+              <ListDivider />
+              <MenuItem onClick={() => runExport("png")}>
+                Export as PNG
+              </MenuItem>
+              <MenuItem onClick={() => runExport("svg")}>
+                Export as SVG
+              </MenuItem>
+              <MenuItem onClick={() => runExport("excalidraw")}>
+                Download .excalidraw
+              </MenuItem>
+              <ListDivider />
+              <MenuItem onClick={() => setHistoryOpen(true)}>
+                Version history
+              </MenuItem>
+            </Menu>
+          </Dropdown>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".vsdx,application/vnd.ms-visio.drawing.main+xml"
+            hidden
+            data-testid="vsdx-input"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void runImport(f);
+            }}
+          />
+          <Button
+            size="sm"
+            variant="outlined"
+            startDecorator={<ShareIcon />}
+            onClick={() => setShareOpen(true)}
+            aria-label="Share whiteboard"
+          >
+            Share
+          </Button>
+          <Chip
+            size="sm"
+            variant="soft"
+            color={
+              status === "live"
+                ? "success"
+                : status === "offline"
+                  ? "danger"
+                  : "warning"
+            }
+          >
+            {status}
+          </Chip>
+        </Box>
+      </JoySheet>
+      <Divider />
+      <Box sx={{ flex: 1, minHeight: 0 }} data-testid="whiteboard-canvas">
+        <Excalidraw
+          excalidrawAPI={(api: any) => {
+            apiRef.current = api;
+            setApiReady(true);
+          }}
+          initialData={initial}
+          onChange={onChange}
+        />
+      </Box>
+
+      <Snackbar
+        open={notice !== null}
+        autoHideDuration={5000}
+        onClose={() => setNotice(null)}
+        data-testid="whiteboard-notice"
+      >
+        {notice}
+      </Snackbar>
+
+      <ShareDialog
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        boardId={id}
+      />
+      <BoardVersionHistory
+        open={historyOpen}
+        docId={id}
+        onClose={() => setHistoryOpen(false)}
+        prepare={async () => {
+          window.clearTimeout(saveTimer.current);
+          const api = apiRef.current;
+          if (api)
+            await saveWhiteboard(
+              id,
+              JSON.stringify({ elements: api.getSceneElementsIncludingDeleted(), files: api.getFiles() }),
+            );
+        }}
+        onRestored={() => {
+          window.clearTimeout(saveTimer.current);
+          const ws = wsRef.current;
+          if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(VERSION_RESTORED_MSG));
+          window.location.reload();
+        }}
+      />
+    </Box>
+  );
+}

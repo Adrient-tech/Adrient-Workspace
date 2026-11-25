@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>War</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, #0b3d2e 0%, #0a2f24 100%);
+    color: #f4f0e6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100%;
+    padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom);
+    touch-action: manipulation;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+  }
+  h1 {
+    font-size: clamp(26px, 9vw, 40px);
+    font-weight: 800;
+    letter-spacing: 4px;
+    color: #ffd34d;
+    text-shadow: 0 2px 0 #5a3e00, 0 0 18px rgba(255,211,77,.35);
+  }
+  .counts {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+  }
+  .count {
+    flex: 1;
+    background: rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    padding: 8px 6px;
+    text-align: center;
+  }
+  .count .lbl { font-size: 12px; opacity: .8; letter-spacing: 1px; text-transform: uppercase; }
+  .count .num { font-size: 26px; font-weight: 800; line-height: 1.1; }
+  .count.cpu .num { color: #ff8f6b; }
+  .count.you .num { color: #8fe3ff; }
+  .bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 8px;
+    background: #ff8f6b;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+  }
+  .bar > i {
+    display: block;
+    height: 100%;
+    background: #8fe3ff;
+    width: 50%;
+    transition: width .35s ease;
+  }
+  .table {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    min-height: 0;
+  }
+  .row { text-align: center; }
+  .row .who { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; opacity: .75; margin-bottom: 6px; }
+  .pile {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 120px;
+    position: relative;
+  }
+  .card {
+    width: 76px;
+    height: 108px;
+    border-radius: 9px;
+    background: #fdfcf7;
+    color: #111;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,.4);
+    flex: 0 0 auto;
+    margin: 0 -14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: deal .25s ease;
+  }
+  @keyframes deal { from { transform: translateY(-12px) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+  .card.win { box-shadow: 0 0 0 3px #ffd34d, 0 4px 10px rgba(0,0,0,.4); transform: translateY(-6px); }
+  .card .corner {
+    position: absolute;
+    font-weight: 800;
+    font-size: 15px;
+    line-height: 1;
+    text-align: center;
+  }
+  .card .corner.tl { top: 5px; left: 6px; }
+  .card .corner.br { bottom: 5px; right: 6px; transform: rotate(180deg); }
+  .card .corner .s { font-size: 13px; display: block; }
+  .card .pip { font-size: 34px; line-height: 1; }
+  .card.red { color: #d22; }
+  .card.black { color: #111; }
+  .card.back {
+    background:
+      repeating-linear-gradient(45deg, #1b4f8a 0 7px, #15406f 7px 14px);
+    border: 3px solid #fdfcf7;
+  }
+  .card.back::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border-radius: 5px;
+    border: 2px solid rgba(255,255,255,.35);
+  }
+  .msg {
+    text-align: center;
+    min-height: 26px;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+  .msg.war { color: #ffd34d; text-shadow: 0 0 14px rgba(255,211,77,.6); animation: pulse .5s ease infinite alternate; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+  .btn {
+    width: 100%;
+    max-width: 440px;
+    border: none;
+    border-radius: 16px;
+    padding: 20px;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #1a1200;
+    background: linear-gradient(180deg, #ffe07a, #ffc62e);
+    box-shadow: 0 6px 0 #b98a00, 0 8px 16px rgba(0,0,0,.4);
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: transform .05s ease, box-shadow .05s ease;
+  }
+  .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #b98a00, 0 4px 8px rgba(0,0,0,.4); }
+  .btn:disabled { opacity: .5; box-shadow: 0 6px 0 #6b5200; }
+  .btn.over { background: linear-gradient(180deg, #9fffb0, #38d96a); box-shadow: 0 6px 0 #1d7a3a, 0 8px 16px rgba(0,0,0,.4); }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/war.svg">
+    <link rel="manifest" href="/games/war.webmanifest">
+    <meta name="theme-color" content="#7F1D1D">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="War">
+    <link rel="apple-touch-icon" href="/games/icons/war.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="war",NAME="War",COLOR="#7F1D1D",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+  <div class="wrap">
+    <h1>WAR</h1>
+    <div class="counts">
+      <div class="count cpu"><div class="lbl">CPU</div><div class="num" id="cpuCount">26</div></div>
+      <div class="count you"><div class="lbl">You</div><div class="num" id="youCount">26</div></div>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="table">
+      <div class="row">
+        <div class="who">CPU</div>
+        <div class="pile" id="cpuPile"></div>
+      </div>
+      <div class="msg" id="msg">Tap PLAY to flip cards</div>
+      <div class="row">
+        <div class="who">You</div>
+        <div class="pile" id="youPile"></div>
+      </div>
+    </div>
+    <button class="btn" id="btn">PLAY</button>
+    <button class="btn" id="onlineBtn" style="margin-top:10px;font-size:18px;padding:14px;background:linear-gradient(180deg,#7fd0ff,#3aa0ff);box-shadow:0 6px 0 #1d6db9,0 8px 16px rgba(0,0,0,.4);color:#04223a;">🌐 ONLINE GAME</button>
+  </div>
+
+<script src="/games/game-multiplayer.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var SUITS = [
+    { s: "♠", red: false }, // spades
+    { s: "♥", red: true },  // hearts
+    { s: "♦", red: true },  // diamonds
+    { s: "♣", red: false }  // clubs
+  ];
+  // rank value: 2..14 (Ace high)
+  var RANK_LABEL = { 11: "J", 12: "Q", 13: "K", 14: "A" };
+
+  // mode: "cpu" = local vs computer (DEFAULT, unchanged). "online" = networked
+  // 2-player match over GameMP. The local CPU game lives entirely in the
+  // youDeck/cpuDeck globals + playRound/resolveWar path and is never touched by
+  // the online code, which keeps its own seat-indexed state (see the ONLINE
+  // section near the bottom).
+  var mode = "cpu";
+
+  var youDeck = []; // index 0 = top
+  var cpuDeck = [];
+  var gameOver = false;
+  var pendingWar = false; // true when next tap should resolve a war
+  var warPot = [];        // accumulated cards in current battle (for war chaining)
+
+  var el = {
+    cpuCount: document.getElementById("cpuCount"),
+    youCount: document.getElementById("youCount"),
+    bar: document.getElementById("bar"),
+    cpuPile: document.getElementById("cpuPile"),
+    youPile: document.getElementById("youPile"),
+    msg: document.getElementById("msg"),
+    btn: document.getElementById("btn")
+  };
+
+  // ---- audio ----
+  var audioCtx = null;
+  function ac() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { audioCtx = null; }
+    }
+    return audioCtx;
+  }
+  function beep(freq, dur, type, vol) {
+    var c = ac();
+    if (!c) return;
+    try {
+      var o = c.createOscillator();
+      var g = c.createGain();
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      g.gain.value = 0;
+      o.connect(g); g.connect(c.destination);
+      var t = c.currentTime;
+      g.gain.linearRampToValueAtTime(vol || 0.12, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    } catch (e) {}
+  }
+  function sFlip() { beep(420, 0.08, "square", 0.07); }
+  function sWin() { beep(660, 0.12, "triangle", 0.12); }
+  function sLose() { beep(180, 0.16, "sawtooth", 0.10); }
+  function sWar() { beep(300, 0.1, "square", 0.1); setTimeout(function(){ beep(450, 0.12, "square", 0.1); }, 90); }
+  function sGameOver(winYou) {
+    if (winYou) {
+      [523, 659, 784, 1046].forEach(function (f, i) { setTimeout(function () { beep(f, 0.18, "triangle", 0.14); }, i * 130); });
+    } else {
+      [392, 330, 262, 196].forEach(function (f, i) { setTimeout(function () { beep(f, 0.2, "sawtooth", 0.12); }, i * 150); });
+    }
+  }
+
+  // ---- deck ----
+  function buildDeck() {
+    var d = [];
+    for (var s = 0; s < 4; s++) {
+      for (var r = 2; r <= 14; r++) {
+        d.push({ rank: r, suit: s });
+      }
+    }
+    // Fisher-Yates
+    for (var i = d.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = d[i]; d[i] = d[j]; d[j] = tmp;
+    }
+    return d;
+  }
+
+  function deal() {
+    var d = buildDeck();
+    youDeck = d.slice(0, 26);
+    cpuDeck = d.slice(26, 52);
+    warPot = [];
+    pendingWar = false;
+    gameOver = false;
+  }
+
+  // ---- rendering ----
+  function rankText(r) { return RANK_LABEL[r] || String(r); }
+
+  function cardFaceEl(card, isWin) {
+    var div = document.createElement("div");
+    var suit = SUITS[card.suit];
+    div.className = "card " + (suit.red ? "red" : "black") + (isWin ? " win" : "");
+    var rt = rankText(card.rank);
+    var tl = document.createElement("div");
+    tl.className = "corner tl";
+    tl.innerHTML = rt + '<span class="s">' + suit.s + '</span>';
+    var br = document.createElement("div");
+    br.className = "corner br";
+    br.innerHTML = rt + '<span class="s">' + suit.s + '</span>';
+    var pip = document.createElement("div");
+    pip.className = "pip";
+    pip.textContent = suit.s;
+    div.appendChild(tl);
+    div.appendChild(pip);
+    div.appendChild(br);
+    return div;
+  }
+
+  function cardBackEl() {
+    var div = document.createElement("div");
+    div.className = "card back";
+    return div;
+  }
+
+  function clearPiles() {
+    el.cpuPile.innerHTML = "";
+    el.youPile.innerHTML = "";
+  }
+
+  function updateCounts() {
+    var yc = youDeck.length, cc = cpuDeck.length;
+    el.youCount.textContent = yc;
+    el.cpuCount.textContent = cc;
+    var total = yc + cc;
+    var pct = total > 0 ? (yc / total) * 100 : 50;
+    el.bar.style.width = pct + "%";
+  }
+
+  function setMsg(text, isWar) {
+    el.msg.textContent = text;
+    el.msg.className = "msg" + (isWar ? " war" : "");
+  }
+
+  // ---- game logic ----
+  // Add cards to bottom of a deck (winner picks them up)
+  function awardTo(deck, cards) {
+    for (var i = 0; i < cards.length; i++) deck.push(cards[i]);
+  }
+
+  // Play one battle round. Resolves wars internally by collecting all cards.
+  // Returns when a winner is decided for this battle, or game ends mid-war.
+  function playRound() {
+    if (gameOver) return;
+    if (youDeck.length === 0 || cpuDeck.length === 0) { finish(); return; }
+
+    clearPiles();
+    warPot = [];
+
+    var yc = youDeck.shift();
+    var cc = cpuDeck.shift();
+    warPot.push(yc, cc);
+
+    el.cpuPile.appendChild(cardFaceEl(cc, false));
+    el.youPile.appendChild(cardFaceEl(yc, false));
+    sFlip();
+
+    if (yc.rank === cc.rank) {
+      // WAR
+      pendingWar = true;
+      setMsg("WAR! Tie at " + rankText(yc.rank) + " — tap to battle", true);
+      sWar();
+      el.btn.textContent = "BATTLE!";
+      updateCounts();
+      // keep these two face-up cards on table; war resolves on next tap
+    } else {
+      resolveSimple(yc, cc);
+    }
+  }
+
+  function resolveSimple(yc, cc) {
+    var youWon = yc.rank > cc.rank;
+    highlightWinner(youWon);
+    if (youWon) {
+      // winner's own card goes first, then loser's (order cosmetic)
+      awardTo(youDeck, warPot);
+      setMsg("You win the round! (" + rankText(yc.rank) + " beats " + rankText(cc.rank) + ")", false);
+      sWin();
+    } else {
+      awardTo(cpuDeck, warPot);
+      setMsg("CPU wins the round (" + rankText(cc.rank) + " beats " + rankText(yc.rank) + ")", false);
+      sLose();
+    }
+    warPot = [];
+    pendingWar = false;
+    el.btn.textContent = "NEXT";
+    updateCounts();
+    checkEnd();
+  }
+
+  // Resolve a WAR triggered by the last face-up tie.
+  // Each player puts up to 3 cards face down + 1 face up (if available).
+  function resolveWar() {
+    sWar();
+    var faceDownCount = 3;
+
+    // Determine how many face-down each can afford; each needs at least 1 card to flip.
+    // If a player can't produce a face-up card, they lose the whole pot.
+    var youDown = [];
+    var cpuDown = [];
+
+    // Lay face-down cards (as many as available, up to faceDownCount, but keep >=1 for the face-up)
+    var i;
+    for (i = 0; i < faceDownCount; i++) {
+      if (youDeck.length > 1) youDown.push(youDeck.shift());
+      else break;
+    }
+    for (i = 0; i < faceDownCount; i++) {
+      if (cpuDeck.length > 1) cpuDown.push(cpuDeck.shift());
+      else break;
+    }
+
+    // Add face-down cards to pot and render backs
+    for (i = 0; i < youDown.length; i++) { warPot.push(youDown[i]); el.youPile.appendChild(cardBackEl()); }
+    for (i = 0; i < cpuDown.length; i++) { warPot.push(cpuDown[i]); el.cpuPile.appendChild(cardBackEl()); }
+
+    // Now each flips one face-up card if able
+    var youHas = youDeck.length > 0;
+    var cpuHas = cpuDeck.length > 0;
+
+    if (!youHas && !cpuHas) {
+      // Neither can flip — pot splits back? Edge case: decide by remaining counts.
+      // Give pot to whoever still has cards; if both empty, the game ends by counts.
+      pendingWar = false;
+      finishByPot();
+      return;
+    }
+
+    if (!youHas || !cpuHas) {
+      // The player who cannot produce a war card loses the pot.
+      var winnerIsYou = youHas;
+      if (winnerIsYou) {
+        var yf = youDeck.shift();
+        warPot.push(yf);
+        el.youPile.appendChild(cardFaceEl(yf, true));
+      } else {
+        var cf = cpuDeck.shift();
+        warPot.push(cf);
+        el.cpuPile.appendChild(cardFaceEl(cf, true));
+      }
+      awardWar(winnerIsYou);
+      return;
+    }
+
+    // Both can flip a face-up war card
+    var yc = youDeck.shift();
+    var cc = cpuDeck.shift();
+    warPot.push(yc, cc);
+    el.cpuPile.appendChild(cardFaceEl(cc, false));
+    el.youPile.appendChild(cardFaceEl(yc, false));
+    sFlip();
+
+    if (yc.rank === cc.rank) {
+      // Another war chained
+      var lastY = el.youPile.lastChild, lastC = el.cpuPile.lastChild;
+      if (lastY) lastY.classList.add("win");
+      if (lastC) lastC.classList.add("win");
+      pendingWar = true;
+      setMsg("DOUBLE WAR! Tie at " + rankText(yc.rank) + " — tap again", true);
+      el.btn.textContent = "BATTLE!";
+      updateCounts();
+    } else {
+      var youWon = yc.rank > cc.rank;
+      var lastY2 = el.youPile.lastChild, lastC2 = el.cpuPile.lastChild;
+      if (youWon && lastY2) lastY2.classList.add("win");
+      if (!youWon && lastC2) lastC2.classList.add("win");
+      awardWar(youWon);
+    }
+  }
+
+  function awardWar(youWon) {
+    if (youWon) {
+      awardTo(youDeck, warPot);
+      setMsg("You won the WAR! +" + warPot.length + " cards", false);
+      sWin();
+    } else {
+      awardTo(cpuDeck, warPot);
+      setMsg("CPU won the WAR (" + warPot.length + " cards)", false);
+      sLose();
+    }
+    warPot = [];
+    pendingWar = false;
+    el.btn.textContent = "NEXT";
+    updateCounts();
+    checkEnd();
+  }
+
+  function highlightWinner(youWon) {
+    var yCards = el.youPile.children;
+    var cCards = el.cpuPile.children;
+    if (youWon) {
+      if (yCards.length) yCards[yCards.length - 1].classList.add("win");
+    } else {
+      if (cCards.length) cCards[cCards.length - 1].classList.add("win");
+    }
+  }
+
+  function checkEnd() {
+    if (youDeck.length === 0 || cpuDeck.length === 0) finish();
+  }
+
+  function finishByPot() {
+    // Tie-break when both ran out mid-war: award pot to whoever had more cards.
+    // (Rare edge case.) Put pot in the larger pile; if equal, split is impossible
+    // since total is fixed — just give to player with cards, else CPU.
+    if (youDeck.length >= cpuDeck.length) awardTo(youDeck, warPot);
+    else awardTo(cpuDeck, warPot);
+    warPot = [];
+    updateCounts();
+    finish();
+  }
+
+  function finish() {
+    gameOver = true;
+    pendingWar = false;
+    // Total cards is always 52, so a player at 0 means the other holds all.
+    var youWin = youDeck.length > cpuDeck.length;
+
+    setMsg(youWin ? "★ YOU WIN THE WAR! ★" : "CPU conquered all 52 cards", false);
+    el.btn.textContent = "PLAY AGAIN";
+    el.btn.classList.add("over");
+    sGameOver(youWin);
+    updateCounts();
+  }
+
+  // ---- input ----
+  function onTap() {
+    var c = ac();
+    if (c && c.state === "suspended") { c.resume(); }
+
+    if (mode === "online") { onFlipTap(); return; }
+
+    if (gameOver) {
+      // restart
+      el.btn.classList.remove("over");
+      deal();
+      clearPiles();
+      updateCounts();
+      setMsg("Tap PLAY to flip cards", false);
+      el.btn.textContent = "PLAY";
+      return;
+    }
+
+    if (pendingWar) {
+      resolveWar();
+      return;
+    }
+
+    playRound();
+  }
+
+  el.btn.addEventListener("click", onTap);
+  // Prevent double-fire / scroll on touch
+  document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); });
+
+  // ======================================================================
+  // ONLINE MULTIPLAYER (GameMP) — exactly 2 players
+  // ----------------------------------------------------------------------
+  // Lockstep, host-seeded, no authoritative server. On match start seat 0 picks
+  // a seed and broadcasts {action:"start", seed}; BOTH clients build the same
+  // 52-card deck, shuffle it with the same seeded PRNG (mulberry32), and split it
+  // deterministically — seat 0 gets the first 26 cards, seat 1 the last 26. From
+  // then on the only network message is {action:"flip", seat}: each player taps
+  // FLIP to commit to the round; once BOTH have flipped, every client reveals the
+  // two top cards and resolves the battle identically (and any WAR chain) with
+  // NO further messages. War has no hidden info and no choices, so a single
+  // shared resolver run on each client stays in perfect sync.
+  //
+  // Determinism rules (must match byte-for-byte on both clients):
+  //  * Pile split: seat 0 = deck[0..25], seat 1 = deck[26..51].
+  //  * Battle: higher rank wins; on a tie a WAR (3 down + 1 up each, chaining).
+  //  * Won-card ordering into the winner's pile bottom is a FIXED order — we walk
+  //    the battle pot in the order cards were laid (mpPot, push order identical on
+  //    both clients) and append seat0's card before seat1's at each flip step, so
+  //    both clients build the same pile every time.
+  //  * Out of cards (can't produce a war/flip card) → the other player wins.
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function seededShuffle(arr,rng){for(var i=arr.length-1;i>0;i--){var j=Math.floor(rng()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+  // Seat-indexed state (kept separate from the local youDeck/cpuDeck globals).
+  var mpSeat = 0;          // our seat (0 = host, 1 = guest)
+  var mpDecks = [[], []];  // mpDecks[seat] -> pile, index 0 = top
+  var mpPot = [];          // cards staked in the current battle (laid order)
+  var mpFlipped = [false, false]; // who has committed FLIP for this round
+  var mpPendingWar = false; // a tie is on the table; next mutual flip is the war
+  var mpOver = false;
+  var mpResolving = false;  // guard against re-entrant resolution
+  var mpPeerLeft = false;   // opponent disconnected → button starts a NEW game
+
+  function mpName(seat){ return seat === mpSeat ? "You" : "Opponent"; }
+  // Fixed, deterministic deck build (independent of the local buildDeck's shuffle).
+  function mpOrderedDeck(){
+    var d = [];
+    for (var s = 0; s < 4; s++) {
+      for (var r = 2; r <= 14; r++) d.push({ rank: r, suit: s });
+    }
+    return d;
+  }
+
+  function mpDeal(seed){
+    var rng = mulberry32(seed >>> 0);
+    var deck = seededShuffle(mpOrderedDeck(), rng);
+    // Deterministic split: seat 0 gets the first half, seat 1 the second half.
+    mpDecks = [deck.slice(0, 26), deck.slice(26, 52)];
+    mpPot = [];
+    mpFlipped = [false, false];
+    mpPendingWar = false;
+    mpOver = false;
+    mpResolving = false;
+  }
+
+  // Render the online board into the same DOM as the local game. We always show
+  // OUR pile as "You" (bottom) and the opponent as "CPU" (top) by mapping seats.
+  function mpRender(){
+    var mine = mpDecks[mpSeat].length;
+    var theirs = mpDecks[1 - mpSeat].length;
+    el.youCount.textContent = mine;
+    el.cpuCount.textContent = theirs;
+    document.querySelector(".count.cpu .lbl").textContent = "OPPONENT";
+    var total = mine + theirs;
+    el.bar.style.width = (total > 0 ? (mine / total) * 100 : 50) + "%";
+  }
+
+  // Reveal the staked cards for the current battle step onto the table. seat0's
+  // cards always render on the top pile or bottom pile by seat→side mapping.
+  function mpSideFor(seat){ return seat === mpSeat ? el.youPile : el.cpuPile; }
+
+  function onFlipTap(){
+    if (mpOver) {
+      if (mpPeerLeft) { GameMP.openCreate(); return; } // opponent gone → new game
+      // Host-only rematch from the game-over state.
+      if (mpSeat === 0) { GameMP.sendReset(); mpStartFresh(); }
+      return;
+    }
+    if (mpFlipped[mpSeat]) return; // already committed this round
+    mpFlipped[mpSeat] = true;
+    GameMP.send({ action: "flip", seat: mpSeat });
+    sFlip();
+    setMsg(mpPendingWar ? "WAR — waiting for opponent…" : "Flipped — waiting for opponent…", mpPendingWar);
+    el.btn.disabled = true;
+    mpMaybeResolve();
+  }
+
+  function onPeerFlip(seat){
+    if (mpOver) return;
+    mpFlipped[seat] = true;
+    mpMaybeResolve();
+  }
+
+  // Once BOTH players have committed FLIP for the round, resolve the battle (or
+  // the pending war). Identical computation on both clients → no desync.
+  function mpMaybeResolve(){
+    if (mpResolving || mpOver) return;
+    if (!(mpFlipped[0] && mpFlipped[1])) return;
+    mpResolving = true;
+    mpFlipped = [false, false];
+    if (mpPendingWar) mpResolveWar();
+    else mpPlayRound();
+    mpResolving = false;
+  }
+
+  function mpReenableFlip(label){
+    el.btn.disabled = false;
+    el.btn.textContent = label;
+  }
+
+  // A normal battle: each seat flips its top card. Higher rank wins both; a tie
+  // starts a WAR (resolved on the next mutual flip).
+  function mpPlayRound(){
+    if (mpDecks[0].length === 0 || mpDecks[1].length === 0) { mpFinish(); return; }
+    clearPiles();
+    mpPot = [];
+    var c0 = mpDecks[0].shift();
+    var c1 = mpDecks[1].shift();
+    mpPot.push(c0, c1); // fixed order: seat0 then seat1
+    mpSideFor(0).appendChild(cardFaceEl(c0, false));
+    mpSideFor(1).appendChild(cardFaceEl(c1, false));
+    sFlip();
+    if (c0.rank === c1.rank) {
+      mpPendingWar = true;
+      setMsg("WAR! Tie at " + rankText(c0.rank) + " — tap to battle", true);
+      sWar();
+      mpReenableFlip("BATTLE!");
+      mpRender();
+    } else {
+      var winner = c0.rank > c1.rank ? 0 : 1;
+      mpAward(winner);
+      mpResolveDone(winner, c0, c1);
+    }
+  }
+
+  function mpResolveDone(winner, c0, c1){
+    mpHighlight(winner);
+    setMsg(mpName(winner) + " wins (" +
+      rankText(Math.max(c0.rank, c1.rank)) + " beats " + rankText(Math.min(c0.rank, c1.rank)) + ")", false);
+    if (winner === mpSeat) sWin(); else sLose();
+    mpReenableFlip("FLIP");
+    mpRender();
+    mpCheckEnd();
+  }
+
+  // A WAR: each seat lays up to 3 cards face-down + 1 face-up. Resolution and
+  // card ordering are identical on both clients (seat0 laid before seat1).
+  function mpResolveWar(){
+    sWar();
+    mpPendingWar = false;
+    var faceDown = 3;
+    var down = [[], []];
+    var s, i;
+    for (s = 0; s < 2; s++) {
+      for (i = 0; i < faceDown; i++) {
+        if (mpDecks[s].length > 1) down[s].push(mpDecks[s].shift());
+        else break;
+      }
+    }
+    // Stake face-down cards (seat0's first, then seat1's) and render backs.
+    for (i = 0; i < down[0].length; i++) { mpPot.push(down[0][i]); mpSideFor(0).appendChild(cardBackEl()); }
+    for (i = 0; i < down[1].length; i++) { mpPot.push(down[1][i]); mpSideFor(1).appendChild(cardBackEl()); }
+
+    var has0 = mpDecks[0].length > 0;
+    var has1 = mpDecks[1].length > 0;
+    if (!has0 && !has1) { mpFinishByPot(); return; }
+    if (!has0 || !has1) {
+      var winner = has0 ? 0 : 1;
+      var wf = mpDecks[winner].shift();
+      mpPot.push(wf);
+      mpSideFor(winner).appendChild(cardFaceEl(wf, true));
+      mpAward(winner);
+      mpResolveWarDone(winner);
+      return;
+    }
+    var f0 = mpDecks[0].shift();
+    var f1 = mpDecks[1].shift();
+    mpPot.push(f0, f1); // fixed order
+    mpSideFor(0).appendChild(cardFaceEl(f0, false));
+    mpSideFor(1).appendChild(cardFaceEl(f1, false));
+    sFlip();
+    if (f0.rank === f1.rank) {
+      var l0 = mpSideFor(0).lastChild, l1 = mpSideFor(1).lastChild;
+      if (l0) l0.classList.add("win");
+      if (l1) l1.classList.add("win");
+      mpPendingWar = true;
+      setMsg("DOUBLE WAR! Tie at " + rankText(f0.rank) + " — tap again", true);
+      mpReenableFlip("BATTLE!");
+      mpRender();
+    } else {
+      var w2 = f0.rank > f1.rank ? 0 : 1;
+      mpHighlight(w2);
+      mpAward(w2);
+      mpResolveWarDone(w2);
+    }
+  }
+
+  function mpResolveWarDone(winner){
+    setMsg(mpName(winner) + " won the WAR! +" + mpPot.length + " cards", false);
+    if (winner === mpSeat) sWin(); else sLose();
+    mpReenableFlip("FLIP");
+    mpRender();
+    mpCheckEnd();
+  }
+
+  // Award the pot to the winner's pile bottom in the FIXED mpPot order (seat0's
+  // staked cards then seat1's, per the push order above) so both clients match.
+  function mpAward(winner){
+    for (var i = 0; i < mpPot.length; i++) mpDecks[winner].push(mpPot[i]);
+    mpPot = [];
+  }
+
+  function mpHighlight(winner){
+    var pile = mpSideFor(winner);
+    if (pile.children.length) pile.children[pile.children.length - 1].classList.add("win");
+  }
+
+  function mpFinishByPot(){
+    // Both ran out mid-war: award the pot to whoever still holds more cards
+    // (deterministic; identical on both clients).
+    var to = mpDecks[0].length >= mpDecks[1].length ? 0 : 1;
+    mpAward(to);
+    mpRender();
+    mpFinish();
+  }
+
+  function mpCheckEnd(){
+    if (mpDecks[0].length === 0 || mpDecks[1].length === 0) mpFinish();
+  }
+
+  function mpFinish(){
+    mpOver = true;
+    mpPendingWar = false;
+    var winner = mpDecks[mpSeat].length > mpDecks[1 - mpSeat].length ? mpSeat : (1 - mpSeat);
+    var iWon = winner === mpSeat;
+    setMsg(iWon ? "★ YOU WIN THE WAR! ★" : "Opponent conquered all 52 cards", false);
+    el.btn.disabled = false;
+    el.btn.classList.add("over");
+    el.btn.textContent = mpSeat === 0 ? "PLAY AGAIN" : "WAITING FOR HOST…";
+    sGameOver(iWon);
+    mpRender();
+  }
+
+  // Seat 0 seeds + broadcasts a fresh deal; both clients deal identically.
+  function mpStartFresh(){
+    var seed = (Math.floor(Math.random() * 0xFFFFFFFF)) >>> 0;
+    GameMP.send({ action: "start", seat: 0, seed: seed });
+    mpBeginMatch(seed);
+  }
+  function mpBeginMatch(seed){
+    mode = "online";
+    mpPeerLeft = false;
+    el.btn.classList.remove("over");
+    el.btn.disabled = false;
+    el.btn.textContent = "FLIP";
+    mpDeal(seed);
+    clearPiles();
+    mpRender();
+    setMsg("Tap FLIP to reveal your card", false);
+  }
+
+  // GameMP wiring -------------------------------------------------------
+  document.getElementById("onlineBtn").addEventListener("click", function () {
+    try { var c = ac(); if (c && c.state === "suspended") c.resume(); } catch (e) {}
+    GameMP.openCreate();
+  });
+
+  GameMP.setup({ gameName: "War", minPlayers: 2, maxPlayers: 2 });
+  GameMP.onReady(function (seat, count) {
+    try { var c = ac(); if (c && c.state === "suspended") c.resume(); } catch (e) {}
+    mpSeat = seat;
+    mode = "online";
+    gameOver = false; // ensure local-game flags don't interfere
+    if (seat === 0) { mpStartFresh(); }
+    else { mpBeginMatch(0); setMsg("Waiting for the deal…", false); }
+  });
+  GameMP.onMove(function (m) {
+    if (m.action === "start") { mpBeginMatch(m.seed); }
+    else if (m.action === "flip") { if (m.seat !== mpSeat) onPeerFlip(m.seat); }
+  });
+  GameMP.onReset(function () {
+    // Host pressed Play again → a fresh "start" deal follows.
+    setMsg("New deal coming…", false);
+  });
+  GameMP.onPeerLeft(function () {
+    if (mode !== "online" || mpOver) return;
+    mpOver = true;
+    mpPeerLeft = true; // FLIP/PLAY button now reopens the create panel
+    setMsg("Opponent left — match ended", false);
+    el.btn.disabled = false;
+    el.btn.classList.add("over");
+    el.btn.textContent = "NEW GAME";
+  });
+
+  // init (local CPU game — the default; online is opt-in via the button)
+  deal();
+  clearPiles();
+  updateCounts();
+  setMsg("Tap PLAY to flip cards", false);
+})();
+</script>
+</body>
+</html>

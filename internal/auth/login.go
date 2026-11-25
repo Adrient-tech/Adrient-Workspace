@@ -1,0 +1,348 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/Adrient-tech/Adrient-Workspace/internal/orgs"
+	"github.com/Adrient-tech/Adrient-Workspace/internal/users"
+)
+
+// LoginHandlers bundles the HTTP handlers for in-app password login and the
+// one-click demo login. Both mint a adrient session directly — no browser
+// redirect to the Zitadel UI.
+type LoginHandlers struct {
+	cfg      Config
+	zitadel  *ZitadelClient
+	sessions *SessionStore
+	users    *users.Repository
+	orgs     *orgs.Repository
+	issuer   string
+
+	// demo configuration (read from env at construction time)
+	demoEnabled  bool
+	demoUsername string
+
+	// auditDemoLogin, when set, is invoked best-effort AFTER a successful demo
+	// login with the resolved demo user's org/user/email + the request, so the
+	// caller (server.go) can record an audit event without this package importing
+	// internal/audit. nil ⇒ no auditing. Kept generic (a plain func) to preserve
+	// the package's decoupling.
+	auditDemoLogin func(r *http.Request, orgID, userID, email string)
+}
+
+// WithDemoLoginAudit registers a best-effort hook fired after a successful demo
+// login (server.go backs it with the audit recorder). Returns h for chaining.
+func (h *LoginHandlers) WithDemoLoginAudit(fn func(r *http.Request, orgID, userID, email string)) *LoginHandlers {
+	h.auditDemoLogin = fn
+	return h
+}
+
+// NewLoginHandlers constructs the LoginHandlers.
+// issuer is the OIDC issuer (used to look up adrient users by their Zitadel id).
+// zitadel may be nil when the API URL / service token are not configured;
+// both endpoints will return 503 in that case.
+func NewLoginHandlers(
+	cfg Config,
+	zitadel *ZitadelClient,
+	sessions *SessionStore,
+	usersRepo *users.Repository,
+	orgsRepo *orgs.Repository,
+	issuer string,
+) *LoginHandlers {
+	demoEnabled := boolEnv("ADRIENT_DEMO_LOGIN_ENABLED")
+	demoUsername := os.Getenv("ADRIENT_DEMO_USERNAME")
+	if demoUsername == "" {
+		demoUsername = "demo@adrient.com"
+	}
+	return &LoginHandlers{
+		cfg:          cfg,
+		zitadel:      zitadel,
+		sessions:     sessions,
+		users:        usersRepo,
+		orgs:         orgsRepo,
+		issuer:       issuer,
+		demoEnabled:  demoEnabled,
+		demoUsername: demoUsername,
+	}
+}
+
+// boolEnv returns true when the env var is truthy ("1", "true", "yes", "on").
+func boolEnv(name string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+// PasswordLogin handles POST /api/v1/auth/login-password.
+// Body: {"username":"…","password":"…"}
+// On success sets the adrient session cookie and returns 200 {"ok":true}.
+// On bad creds returns 401 {"error":"invalid email or password"}.
+// The password is never logged.
+func (h *LoginHandlers) PasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.zitadel == nil {
+		jsonError(w, "password login not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.Username = strings.TrimSpace(req.Username)
+	if req.Username == "" || req.Password == "" {
+		jsonError(w, "invalid email or password", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := r.Context()
+	ipAddr, uaStr := extractRequestContext(r)
+	country := r.Header.Get("CF-IPCountry")
+	if gerr := checkSignInGate(ctx, ipAddr, country); gerr != nil {
+		observeLogin(ctx, LoginEvent{Email: req.Username, IP: ipAddr, UserAgent: uaStr, Method: "password", Reason: gerr.Error(), Country: country})
+		jsonError(w, "sign-in from this address is not allowed", http.StatusForbidden)
+		return
+	}
+	if gerr := checkPasswordGate(ctx, req.Username); gerr != nil {
+		observeLogin(ctx, LoginEvent{Email: req.Username, IP: ipAddr, UserAgent: uaStr, Method: "password", Reason: "sso_required"})
+		jsonError(w, gerr.Error(), http.StatusForbidden)
+		return
+	}
+	zResult, err := h.zitadel.AuthenticatePassword(ctx, req.Username, req.Password)
+	if err != nil {
+		if errors.Is(err, ErrZitadelInactive) {
+			observeLogin(ctx, LoginEvent{Email: req.Username, IP: ipAddr, UserAgent: uaStr, Method: "password", Reason: "account_disabled", Country: country})
+			jsonError(w, "invalid email or password", http.StatusUnauthorized)
+			return
+		}
+		if errors.Is(err, ErrZitadelUnauthorized) {
+			observeLogin(ctx, LoginEvent{Email: req.Username, IP: ipAddr, UserAgent: uaStr, Method: "password", Reason: "bad_credentials", Country: country})
+			jsonError(w, "invalid email or password", http.StatusUnauthorized)
+			return
+		}
+		slog.Error("zitadel password auth failed", "err", err)
+		jsonError(w, "authentication failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Enrich with email/profile so the adrient row carries a real email (best
+	// effort — never block password login if the lookup fails).
+	var pwEmail, pwDisplay string
+	if det, derr := h.zitadel.LookupUserDetailsByLoginName(ctx, req.Username); derr == nil {
+		pwEmail, pwDisplay = det.Email, det.DisplayName
+	}
+	if pwEmail == "" {
+		if det, derr := h.zitadel.LookupUserDetailsByID(ctx, zResult.UserID); derr == nil {
+			pwEmail, pwDisplay = det.Email, det.DisplayName
+		}
+	}
+	pwUser, err := h.mintSession(ctx, w, r, zResult.UserID, pwEmail, pwDisplay)
+	if err != nil {
+		slog.Error("mint session after password login", "err", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	observeLogin(ctx, LoginEvent{OrgID: pwUser.OrgID, UserID: pwUser.ID, Email: pwUser.Email, IP: ipAddr, UserAgent: uaStr, Method: "password", Success: true, Country: country})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// DemoLogin handles POST /api/v1/auth/demo-login (one-click demo sign-in) and
+// GET /api/v1/auth/demo-login (capability probe).
+//
+// GET → {"enabled": true/false}
+// POST → on success sets the adrient session cookie and returns 200 {"ok":true}.
+//
+// Gated by ADRIENT_DEMO_LOGIN_ENABLED=true. The demo account is the single
+// configured ADRIENT_DEMO_USERNAME — no caller-supplied username is accepted.
+func (h *LoginHandlers) DemoLogin(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"enabled": h.demoEnabled})
+		return
+	case http.MethodPost:
+		// fall through
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !h.demoEnabled {
+		jsonError(w, "demo login is disabled", http.StatusForbidden)
+		return
+	}
+	if h.zitadel == nil {
+		jsonError(w, "demo login not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Look up the demo user's Zitadel user id + email/profile by login name so we
+	// can resolve (or provision) their adrient row via GetByOIDCAnyOrg /
+	// UpsertByOIDC, exactly like the OIDC callback does. The email is important:
+	// it backs downstream features keyed off the user's address (e.g. the Forgejo
+	// reverse-proxy SSO at /git derives the git username from it), so we provision
+	// it rather than leaving it blank as the bare-userID lookup would.
+	zUser, err := h.zitadel.LookupUserDetailsByLoginName(ctx, h.demoUsername)
+	if err != nil {
+		slog.Error("demo login: lookup demo user in zitadel", "username", h.demoUsername, "err", err)
+		jsonError(w, "demo user not found", http.StatusServiceUnavailable)
+		return
+	}
+
+	u, err := h.mintSession(ctx, w, r, zUser.UserID, zUser.Email, zUser.DisplayName)
+	if err != nil {
+		slog.Error("mint session for demo login", "err", err)
+		jsonError(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Best-effort audit of the demo sign-in (the demo user has no auth context on
+	// the inbound request, so we pass the resolved identity explicitly).
+	if h.auditDemoLogin != nil {
+		h.auditDemoLogin(r, u.OrgID, u.ID, u.Email)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// orFallback returns primary when non-empty, otherwise fallback.
+func orFallback(primary, fallback string) string {
+	if primary != "" {
+		return primary
+	}
+	return fallback
+}
+
+// mintSession resolves the adrient user for zitadelUserID, creates a adrient
+// session, and sets the session cookie on w. It mirrors exactly what the OIDC
+// Callback does: GetByOIDCAnyOrg → UpsertByOIDC (provision if new) →
+// CreateWithContext → set-cookie.
+func (h *LoginHandlers) mintSession(ctx context.Context, w http.ResponseWriter, r *http.Request, zitadelUserID, email, displayName string) (users.User, error) {
+	issuer := h.issuer
+	if issuer == "" {
+		issuer = h.cfg.IssuerURL
+	}
+
+	// Resolve or provision the adrient user. When we have an email/display name
+	// (always for demo login, best-effort for password login) we keep the adrient
+	// row in sync via UpsertByOIDC so the user always has a real email — this is
+	// what downstream email-keyed features (Forgejo reverse-proxy SSO) rely on.
+	u, err := h.users.GetByOIDCAnyOrg(ctx, issuer, zitadelUserID)
+	if err != nil && !errors.Is(err, users.ErrNotFound) {
+		return users.User{}, err
+	}
+	switch {
+	case errors.Is(err, users.ErrNotFound):
+		// First time this Zitadel user signs in via this flow — provision them
+		// exactly like the OIDC callback would, in the default org.
+		orgID, orgErr := h.resolveDefaultOrg(ctx)
+		if orgErr != nil {
+			return users.User{}, orgErr
+		}
+		u, err = h.users.UpsertByOIDC(ctx, users.UpsertInput{
+			OrgID:       orgID,
+			OIDCIssuer:  issuer,
+			OIDCSubject: zitadelUserID,
+			Email:       email,
+			DisplayName: displayName,
+		})
+		if err != nil {
+			return users.User{}, err
+		}
+	case email != "" && u.Email != email:
+		// Existing user but their adrient row is missing / has a stale email (e.g.
+		// a demo user provisioned before email backfill). Update it so email-keyed
+		// downstream features work. Idempotent via UpsertByOIDC's ON CONFLICT.
+		if updated, uerr := h.users.UpsertByOIDC(ctx, users.UpsertInput{
+			OrgID:       u.OrgID,
+			OIDCIssuer:  issuer,
+			OIDCSubject: zitadelUserID,
+			Email:       email,
+			DisplayName: orFallback(displayName, u.DisplayName),
+		}); uerr == nil {
+			u = updated
+		}
+	}
+
+	// Capture client context for the session (same as the OIDC callback).
+	ip, userAgent := extractRequestContext(r)
+
+	tok, err := h.sessions.CreateWithContext(ctx, u.ID, h.cfg.SessionLifetime, ip, userAgent)
+	if err != nil {
+		return users.User{}, err
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.cfg.CookieName,
+		Value:    tok,
+		Path:     "/",
+		Domain:   h.cfg.CookieDomain,
+		MaxAge:   int(h.cfg.SessionLifetime / time.Second),
+		HttpOnly: true,
+		Secure:   h.cfg.CookieSecure,
+		SameSite: http.SameSiteLaxMode,
+	})
+	return u, nil
+}
+
+// resolveDefaultOrg returns the default org ID. Used when provisioning a user
+// for the first time via the password flow (mirrors the OIDC callback's
+// fallback path when personal orgs are disabled or for demo users).
+func (h *LoginHandlers) resolveDefaultOrg(ctx context.Context) (string, error) {
+	org, err := h.orgs.GetBySlug(ctx, h.cfg.DefaultOrgSlug)
+	if err != nil {
+		return "", err
+	}
+	return org.ID, nil
+}
+
+// extractRequestContext extracts IP + User-Agent from a plain *http.Request
+// (used by the direct HTTP handlers, as opposed to the gRPC-gateway path
+// which reads from gRPC metadata).
+func extractRequestContext(r *http.Request) (ip, userAgent string) {
+	userAgent = r.Header.Get("User-Agent")
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			ip = strings.TrimSpace(xff[:i])
+		} else {
+			ip = strings.TrimSpace(xff)
+		}
+	}
+	if ip == "" {
+		host := r.RemoteAddr
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			ip = h
+		} else {
+			ip = host
+		}
+	}
+	return ip, userAgent
+}
+
+// jsonError writes a JSON error response.
+func jsonError(w http.ResponseWriter, msg string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}

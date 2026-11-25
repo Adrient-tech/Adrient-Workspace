@@ -1,0 +1,461 @@
+syntax = "proto3";
+
+package adrient.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/Adrient-tech/Adrient-Workspace/gen/go/adrient/v1;adrientv1";
+
+// PosService is the point of sale: registers, cash drawer shifts, sales,
+// payments, refunds, tax rates, discount presets and per-customer loyalty /
+// store-credit balances. The product catalog and stock live in InventoryService;
+// completing a sale adjusts stock in the same database transaction.
+// ListSales is the read API for Accounting and Invoicing.
+service PosService {
+  // Registers and drawer shifts
+  rpc ListRegisters(PosEmpty) returns (ListPosRegistersResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/registers" };
+  }
+  rpc CreateRegister(SavePosRegisterRequest) returns (PosRegister) {
+    option (google.api.http) = { post: "/api/v1/pos/registers" body: "*" };
+  }
+  rpc UpdateRegister(SavePosRegisterRequest) returns (PosRegister) {
+    option (google.api.http) = { patch: "/api/v1/pos/registers/{id}" body: "*" };
+  }
+  rpc ArchiveRegister(PosIdRequest) returns (PosEmpty) {
+    option (google.api.http) = { delete: "/api/v1/pos/registers/{id}" };
+  }
+  rpc OpenShift(OpenPosShiftRequest) returns (PosShift) {
+    option (google.api.http) = { post: "/api/v1/pos/registers/{register_id}/shift" body: "*" };
+  }
+  rpc CloseShift(ClosePosShiftRequest) returns (PosShift) {
+    option (google.api.http) = { post: "/api/v1/pos/shifts/{id}/close" body: "*" };
+  }
+  rpc CashMove(PosCashMoveRequest) returns (PosShift) {
+    option (google.api.http) = { post: "/api/v1/pos/shifts/{id}/cash" body: "*" };
+  }
+  rpc GetShift(PosIdRequest) returns (PosShift) {
+    option (google.api.http) = { get: "/api/v1/pos/shifts/{id}" };
+  }
+  rpc ListShifts(ListPosShiftsRequest) returns (ListPosShiftsResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/shifts" };
+  }
+
+  // Sales
+  rpc HoldSale(PosSaleInput) returns (PosSale) {
+    option (google.api.http) = { post: "/api/v1/pos/sales/hold" body: "*" };
+  }
+  rpc CompleteSale(PosSaleInput) returns (PosSale) {
+    option (google.api.http) = { post: "/api/v1/pos/sales/complete" body: "*" };
+  }
+  rpc GetSale(PosIdRequest) returns (PosSale) {
+    option (google.api.http) = { get: "/api/v1/pos/sales/{id}" };
+  }
+  rpc DeleteHeldSale(PosIdRequest) returns (PosEmpty) {
+    option (google.api.http) = { delete: "/api/v1/pos/sales/{id}" };
+  }
+  rpc ListSales(ListPosSalesRequest) returns (ListPosSalesResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/sales" };
+  }
+  rpc RefundSale(RefundPosSaleRequest) returns (PosSale) {
+    option (google.api.http) = { post: "/api/v1/pos/sales/{id}/refund" body: "*" };
+  }
+
+  // Taxes, discounts, settings
+  rpc ListTaxRates(PosEmpty) returns (ListPosTaxRatesResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/taxes" };
+  }
+  rpc CreateTaxRate(SavePosTaxRateRequest) returns (PosTaxRate) {
+    option (google.api.http) = { post: "/api/v1/pos/taxes" body: "*" };
+  }
+  rpc UpdateTaxRate(SavePosTaxRateRequest) returns (PosTaxRate) {
+    option (google.api.http) = { patch: "/api/v1/pos/taxes/{id}" body: "*" };
+  }
+  rpc DeleteTaxRate(PosIdRequest) returns (PosEmpty) {
+    option (google.api.http) = { delete: "/api/v1/pos/taxes/{id}" };
+  }
+  rpc ListDiscountPresets(PosEmpty) returns (ListPosDiscountPresetsResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/discounts" };
+  }
+  rpc CreateDiscountPreset(SavePosDiscountPresetRequest) returns (PosDiscountPreset) {
+    option (google.api.http) = { post: "/api/v1/pos/discounts" body: "*" };
+  }
+  rpc UpdateDiscountPreset(SavePosDiscountPresetRequest) returns (PosDiscountPreset) {
+    option (google.api.http) = { patch: "/api/v1/pos/discounts/{id}" body: "*" };
+  }
+  rpc DeleteDiscountPreset(PosIdRequest) returns (PosEmpty) {
+    option (google.api.http) = { delete: "/api/v1/pos/discounts/{id}" };
+  }
+  rpc GetSettings(PosEmpty) returns (PosSettings) {
+    option (google.api.http) = { get: "/api/v1/pos/settings" };
+  }
+  rpc SaveSettings(PosSettings) returns (PosSettings) {
+    option (google.api.http) = { put: "/api/v1/pos/settings" body: "*" };
+  }
+
+  // Customer balances (loyalty points and store credit)
+  rpc ListBalances(PosEmpty) returns (ListPosBalancesResponse) {
+    option (google.api.http) = { get: "/api/v1/pos/balances" };
+  }
+  rpc GetBalance(PosIdRequest) returns (PosBalance) {
+    option (google.api.http) = { get: "/api/v1/pos/balances/{id}" };
+  }
+  rpc AdjustBalance(AdjustPosBalanceRequest) returns (PosBalance) {
+    option (google.api.http) = { post: "/api/v1/pos/balances/{contact_id}/adjust" body: "*" };
+  }
+
+  rpc Report(PosReportRequest) returns (PosReport) {
+    option (google.api.http) = { get: "/api/v1/pos/report" };
+  }
+}
+
+message PosEmpty {}
+
+message PosIdRequest {
+  string id = 1;
+}
+
+// ---- registers / shifts
+
+message PosRegister {
+  string id = 1;
+  string name = 2;
+  // Inventory location that stock is taken from. Empty = default location.
+  string location_id = 3;
+  bool archived = 4;
+  // Set while a shift is open on this register.
+  string open_shift_id = 5;
+  string created_at = 6;
+}
+
+message ListPosRegistersResponse {
+  repeated PosRegister registers = 1;
+}
+
+message SavePosRegisterRequest {
+  string id = 1;
+  string name = 2;
+  string location_id = 3;
+}
+
+message PosCashEntry {
+  string id = 1;
+  double amount = 2; // positive = paid in, negative = paid out
+  string note = 3;
+  string created_at = 4;
+}
+
+message PosShift {
+  string id = 1;
+  string register_id = 2;
+  string register_name = 3;
+  string opened_by = 4;
+  string opened_at = 5;
+  double opening_cash = 6;
+  string closed_at = 7;
+  bool closed = 8;
+  double counted_cash = 9;
+  // opening + cash sales - cash refunds + paid in - paid out
+  double expected_cash = 10;
+  double variance = 11; // counted - expected (closed shifts)
+  string note = 12;
+  double cash_sales = 13;
+  double cash_refunds = 14;
+  double cash_in = 15;
+  double cash_out = 16;
+  int32 sales_count = 17;
+  double sales_total = 18;
+  repeated PosCashEntry entries = 19;
+}
+
+message OpenPosShiftRequest {
+  string register_id = 1;
+  double opening_cash = 2;
+}
+
+message ClosePosShiftRequest {
+  string id = 1;
+  double counted_cash = 2;
+  string note = 3;
+}
+
+message PosCashMoveRequest {
+  string id = 1;
+  double amount = 2;
+  string note = 3;
+}
+
+message ListPosShiftsRequest {
+  string register_id = 1;
+  int32 limit = 2;
+}
+
+message ListPosShiftsResponse {
+  repeated PosShift shifts = 1;
+}
+
+// ---- sales
+
+message PosLineInput {
+  // Empty for a custom one-off item.
+  string product_id = 1;
+  string name = 2;
+  string sku = 3;
+  double qty = 4;
+  double unit_price = 5;
+  // percent | amount | "" (none), applied to the line before order discounts.
+  string discount_kind = 6;
+  double discount_value = 7;
+  string tax_rate_id = 8;
+  string note = 9;
+}
+
+message PosPaymentInput {
+  // cash | card | other | store_credit | loyalty
+  string method = 1;
+  // Amount handed over (cash may exceed what is due; change is computed).
+  double amount = 2;
+  string ref = 3;
+}
+
+message PosSaleInput {
+  // Existing held sale to update / complete. Empty = new sale.
+  string id = 1;
+  string register_id = 2;
+  string customer_id = 3;
+  string customer_name = 4;
+  repeated PosLineInput lines = 5;
+  string discount_kind = 6;
+  double discount_value = 7;
+  string note = 8;
+  // Label for a held sale.
+  string hold_label = 9;
+  repeated PosPaymentInput payments = 10;
+}
+
+message PosSaleLine {
+  string id = 1;
+  string product_id = 2;
+  string name = 3;
+  string sku = 4;
+  double qty = 5;
+  double unit_price = 6;
+  string discount_kind = 7;
+  double discount_value = 8;
+  string tax_rate_id = 9;
+  string tax_name = 10;
+  double tax_rate = 11;
+  bool tax_inclusive = 12;
+  double discount_amount = 13; // line + allocated order discount
+  double tax_amount = 14;
+  double line_total = 15;
+  double refunded_qty = 16;
+  double refunded_amount = 17;
+  string note = 18;
+}
+
+message PosPayment {
+  string id = 1;
+  string method = 2;
+  double amount = 3;   // applied to the sale
+  double tendered = 4; // handed over
+  string ref = 5;
+  string created_at = 6;
+}
+
+message PosRefundLine {
+  string line_id = 1;
+  string name = 2;
+  double qty = 3;
+  double amount = 4;
+}
+
+message PosRefund {
+  string id = 1;
+  string number = 2;
+  string sale_id = 3;
+  double total = 4;
+  string method = 5;
+  string note = 6;
+  bool restock = 7;
+  string created_at = 8;
+  repeated PosRefundLine lines = 9;
+}
+
+message PosSale {
+  string id = 1;
+  // Per-org receipt number, 0 while held.
+  int64 number = 2;
+  string register_id = 3;
+  string register_name = 4;
+  string shift_id = 5;
+  string customer_id = 6;
+  string customer_name = 7;
+  // held | completed | partially_refunded | refunded
+  string status = 8;
+  double subtotal = 9;
+  double discount_total = 10;
+  double tax_total = 11;
+  double total = 12;
+  double paid = 13;
+  double change_due = 14;
+  string discount_kind = 15;
+  double discount_value = 16;
+  string note = 17;
+  string hold_label = 18;
+  double refunded_total = 19;
+  double loyalty_earned = 20;
+  string created_by = 21;
+  string created_at = 22;
+  string completed_at = 23;
+  repeated PosSaleLine lines = 24;
+  repeated PosPayment payments = 25;
+  repeated PosRefund refunds = 26;
+}
+
+message ListPosSalesRequest {
+  // held | completed | refunded (refunded or partially) | "" = all non-held
+  string status = 1;
+  string query = 2;
+  string since = 3; // RFC3339
+  string until = 4;
+  string customer_id = 5;
+  string register_id = 6;
+  int32 limit = 7;
+  // When true, lines/payments are included (Accounting export).
+  bool detail = 8;
+}
+
+message ListPosSalesResponse {
+  repeated PosSale sales = 1;
+}
+
+message RefundLineInput {
+  string line_id = 1;
+  double qty = 2;
+}
+
+message RefundPosSaleRequest {
+  string id = 1;
+  string register_id = 2;
+  repeated RefundLineInput lines = 3;
+  // cash | card | other | store_credit
+  string method = 4;
+  bool restock = 5;
+  string note = 6;
+}
+
+// ---- taxes, discounts, settings
+
+message PosTaxRate {
+  string id = 1;
+  string name = 2;
+  double rate = 3; // percent
+  bool inclusive = 4;
+  bool is_default = 5;
+}
+
+message SavePosTaxRateRequest {
+  string id = 1;
+  string name = 2;
+  double rate = 3;
+  bool inclusive = 4;
+  bool is_default = 5;
+}
+
+message ListPosTaxRatesResponse {
+  repeated PosTaxRate rates = 1;
+}
+
+message PosDiscountPreset {
+  string id = 1;
+  string name = 2;
+  string kind = 3; // percent | amount
+  double value = 4;
+}
+
+message SavePosDiscountPresetRequest {
+  string id = 1;
+  string name = 2;
+  string kind = 3;
+  double value = 4;
+}
+
+message ListPosDiscountPresetsResponse {
+  repeated PosDiscountPreset presets = 1;
+}
+
+message PosSettings {
+  string store_name = 1;
+  string currency = 2;
+  string receipt_header = 3;
+  string receipt_footer = 4;
+  // Loyalty points earned per 1 currency unit of a sale total (0 = off).
+  double loyalty_earn_per_unit = 5;
+  // Currency value of one point when redeemed.
+  double loyalty_point_value = 6;
+}
+
+// ---- balances
+
+message PosBalanceEntry {
+  string id = 1;
+  string kind = 2; // loyalty | store_credit
+  double delta = 3;
+  string reason = 4; // earn | redeem | refund | adjust | sale | reverse
+  string sale_id = 5;
+  string note = 6;
+  string created_at = 7;
+}
+
+message PosBalance {
+  string contact_id = 1;
+  double loyalty_points = 2;
+  double store_credit = 3;
+  string updated_at = 4;
+  repeated PosBalanceEntry entries = 5;
+}
+
+message ListPosBalancesResponse {
+  repeated PosBalance balances = 1;
+}
+
+message AdjustPosBalanceRequest {
+  string contact_id = 1;
+  string kind = 2; // loyalty | store_credit
+  double delta = 3;
+  string note = 4;
+}
+
+// ---- report
+
+message PosReportRequest {
+  string since = 1;
+  string until = 2;
+}
+
+message PosReportRow {
+  string key = 1;
+  string label = 2;
+  int64 count = 3;
+  double qty = 4;
+  double amount = 5;
+  double extra = 6;
+  double base = 7; // taxable amount (tax summary)
+}
+
+message PosReport {
+  int64 sales_count = 1;
+  double gross = 2;     // sum of line prices before discounts
+  double discounts = 3;
+  double tax = 4;
+  double total = 5;     // completed sale totals
+  double refunds = 6;
+  int64 refunds_count = 7;
+  double net = 8;       // total - refunds
+  double average_sale = 9;
+  repeated PosReportRow by_day = 10;
+  repeated PosReportRow by_method = 11;
+  repeated PosReportRow top_products = 12;
+  repeated PosReportRow tax_summary = 13; // label=name, extra=rate, base=taxable amount, amount=tax
+}

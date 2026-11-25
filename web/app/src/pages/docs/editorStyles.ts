@@ -1,0 +1,371 @@
+import { tableSx } from "./tableModel";
+import { referencesSx } from "./referencesStyles";
+import type { SxProps } from "@mui/joy/styles/types";
+import type { Indents } from "./Ruler";
+import type { BaseGeom } from "./paginationPlugin";
+import type { Hyphenation } from "./sections";
+import { MARGIN_FIELD_CSS } from "./margin";
+
+const PX_PER_INCH = 96;
+const PAGE_GAP = 10; // gray gap drawn between pages
+
+export type Orientation = "portrait" | "landscape";
+
+/** pageDims returns the page width/height in px for the orientation. */
+export function pageDims(orientation: Orientation): { w: number; h: number } {
+  const long = 11 * PX_PER_INCH,
+    short = 8.5 * PX_PER_INCH;
+  return orientation === "landscape"
+    ? { w: long, h: short }
+    : { w: short, h: long };
+}
+
+/** editorPageSx styles the white "page": Letter size, 1" margins, a drop
+ *  shadow, and a faint page-boundary guide every page so the document reads as
+ *  discrete pages on the gray workspace. Ruler indents set the L/R margins and
+ *  first-line indent. (True content reflow across pages is a follow-up.) */
+export interface VMargins {
+  top: number; // inches
+  bottom: number; // inches
+}
+
+export function editorPageSx(
+  indents: Indents,
+  orientation: Orientation = "portrait",
+  vMargins: VMargins = { top: 1, bottom: 1 },
+  page?: { w: number; h: number; hyphenation?: Hyphenation | null },
+): SxProps {
+  const dims = pageDims(orientation);
+  const PAGE_W = page?.w ?? dims.w;
+  const PAGE_H = page?.h ?? dims.h;
+  const hyph = page?.hyphenation;
+  const MT = vMargins.top * PX_PER_INCH;
+  const MB = vMargins.bottom * PX_PER_INCH;
+  return {
+    width: { xs: "100%", md: `${PAGE_W}px` },
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    mx: "auto",
+    position: "relative",
+    bgcolor: "#fff",
+    color: "#202124",
+    borderRadius: 0,
+    boxShadow: "0 1px 3px rgba(60,64,67,.24), 0 1px 2px rgba(60,64,67,.18)",
+    minHeight: `${PAGE_H}px`,
+    // Footnote markers auto-number via this counter (incremented per
+    // .footnote-ref::before), so they stay correct as notes move.
+    counterReset: "footnote endnote",
+    pt: `${MT}px`,
+    pb: `${MB}px`,
+    pl: { xs: 2, md: `${indents.left * PX_PER_INCH}px` },
+    // Left page margin for page-relative object offsets (M7, objects.ts).
+    "--doc-ml": `${indents.left * PX_PER_INCH}px`,
+    pr: { xs: 2, md: `${indents.right * PX_PER_INCH}px` },
+    // Page boundaries every page: a ${PAGE_GAP}px gray gap (matching the
+    // workspace) with faint edge shadows, so the document reads as separate sheets.
+    backgroundImage:
+      `repeating-linear-gradient(to bottom,` +
+      ` transparent 0,` +
+      ` transparent ${PAGE_H - PAGE_GAP}px,` +
+      ` rgba(0,0,0,.10) ${PAGE_H - PAGE_GAP}px,` +
+      ` #f1f3f4 ${PAGE_H - PAGE_GAP + 1}px,` +
+      ` #f1f3f4 ${PAGE_H - 1}px,` +
+      ` rgba(0,0,0,.10) ${PAGE_H - 1}px,` +
+      ` transparent ${PAGE_H}px)`,
+    "& .ProseMirror": {
+      outline: "none",
+      minHeight: `${PAGE_H - MT - MB}px`,
+      lineHeight: 1.6,
+      ...(hyph?.auto ? { hyphens: "auto", WebkitHyphens: "auto" } : {}),
+    },
+    "& .ProseMirror p": {
+      margin: "0 0 0.75em",
+      textIndent: `${indents.firstLine * PX_PER_INCH}px`,
+    },
+    "& .ProseMirror ul[data-type='taskList']": {
+      listStyle: "none",
+      paddingLeft: 0,
+    },
+    "& .ProseMirror ul[data-type='taskList'] li": {
+      display: "flex",
+      gap: "0.5em",
+    },
+    "& .ProseMirror img": { maxWidth: "100%", height: "auto" },
+    "& .ProseMirror img.doc-drawing": {
+      display: "block",
+      margin: "0.5em auto",
+      maxWidth: "100%",
+      cursor: "pointer",
+      border: "1px solid transparent",
+      borderRadius: "4px",
+    },
+    "& .ProseMirror img.doc-drawing:hover": {
+      border: "1px solid #c7d2fe",
+    },
+    // Equations (M11): KaTeX inside a clickable atom; display equations on
+    // their own centred line.
+    "& .ProseMirror .doc-math": {
+      cursor: "pointer",
+      borderRadius: "3px",
+      padding: "0 1px",
+    },
+    "& .ProseMirror .doc-math:hover": { background: "rgba(26,115,232,0.08)" },
+    "& .ProseMirror .doc-math.ProseMirror-selectednode": { outline: "2px solid #8ab4f8" },
+    "& .ProseMirror .doc-math-display": { display: "block", textAlign: "center", margin: "0.5em 0" },
+    "& .ProseMirror .doc-math-empty": {
+      color: "#80868b",
+      border: "1px dashed #bdc1c6",
+      padding: "0 4px",
+      fontStyle: "italic",
+    },
+    // Page break: dashed divider on screen, real page break when printed.
+    "& .ProseMirror .page-break": {
+      borderTop: "2px dashed #c7d2fe",
+      margin: "1.5em 0",
+      height: 0,
+      position: "relative",
+      breakAfter: "page",
+      pageBreakAfter: "always",
+    },
+    // Section and column breaks (M9): a labelled double / dashed line.
+    "& .ProseMirror .section-break, & .ProseMirror .column-break": {
+      height: 0,
+      margin: "1.2em 0",
+      position: "relative",
+      borderTop: "3px double #c7d2fe",
+    },
+    "& .ProseMirror .column-break": { borderTop: "1px dashed #c7d2fe" },
+    "& .ProseMirror .section-break::after, & .ProseMirror .column-break::after": {
+      content: "attr(data-label)",
+      position: "absolute",
+      top: "-0.75em",
+      left: "50%",
+      transform: "translateX(-50%)",
+      fontSize: "11px",
+      lineHeight: "1.4",
+      color: "#5f6368",
+      background: "#fff",
+      padding: "0 6px",
+      whiteSpace: "nowrap",
+    },
+    "& .ProseMirror .column-break::after": { content: '"Column break"' },
+    "& .ProseMirror .section-break.ProseMirror-selectednode, & .ProseMirror .column-break.ProseMirror-selectednode": {
+      outline: "2px solid #8ab4f8",
+    },
+    // Pagination spacers (M9) never take the caret or a click.
+    "& .ProseMirror .pg-spacer": { margin: 0, padding: 0, border: 0, userSelect: "none", pointerEvents: "none" },
+    "& .ProseMirror .pg-repeat": { userSelect: "none", pointerEvents: "none" },
+    ...MARGIN_FIELD_CSS,
+    // Hidden text (Font > Hidden) is shown dimmed with a dotted underline on
+    // screen, as Word does with "show hidden text", and left out when printing.
+    "& .ProseMirror .doc-hidden-text": { opacity: 0.6, textDecoration: "underline dotted" },
+    "@media print": {
+      "& .ProseMirror .doc-hidden-text": { display: "none" },
+      "& .ProseMirror .page-break": { borderTop: "none" },
+      "& .ProseMirror .section-break, & .ProseMirror .column-break": { borderTop: "none", margin: 0 },
+      "& .ProseMirror .section-break::after, & .ProseMirror .column-break::after": { content: "none" },
+      "& .ProseMirror .section-break:not([data-kind='continuous'])": { breakAfter: "page" },
+      // Repeated header rows print at the top of every page (Docs M4).
+      "& .ProseMirror tr[data-repeat-header]": { display: "table-header-group" },
+    },
+    // Header/footer margin regions: placed inside the page's top/bottom margins,
+    // visually separated from the body, smaller and muted like Google Docs.
+    "& .doc-header-region, & .doc-footer-region": {
+      position: "absolute",
+      left: { xs: 16, md: `${indents.left * PX_PER_INCH}px` },
+      right: { xs: 16, md: `${indents.right * PX_PER_INCH}px` },
+      fontSize: "0.85rem",
+      color: "#5f6368",
+    },
+    "& .doc-header-region": { top: `${MT / 2 - 6}px` },
+    "& .doc-footer-region": { bottom: `${MB / 2 - 6}px` },
+    "& .margin-editor .ProseMirror": {
+      outline: "none",
+      minHeight: "1.4em",
+      lineHeight: 1.4,
+    },
+    "& .margin-editor .ProseMirror p": { margin: 0, textIndent: 0 },
+    "& .doc-header-region .margin-editor": {
+      borderBottom: "1px solid #e0e0e0",
+      paddingBottom: "2px",
+    },
+    "& .doc-footer-region .margin-editor": {
+      borderTop: "1px solid #e0e0e0",
+      paddingTop: "2px",
+    },
+    // Tracked changes (M5). Markup (default) shows every change; the page
+    // carries review-<mode> for the other display modes.
+    "& .ProseMirror .suggestion-insert": {
+      color: "var(--change-color, #188038)",
+      textDecoration: "underline",
+      textDecorationColor: "var(--change-color, #188038)",
+    },
+    "& .ProseMirror .suggestion-delete": {
+      color: "#d93025",
+      textDecoration: "line-through",
+    },
+    "& .ProseMirror .suggestion-format": {
+      borderBottom: "2px dotted #8e24aa",
+    },
+    "& .ProseMirror [data-para-change-type]::after": {
+      content: '"¶"',
+      marginLeft: "2px",
+      fontWeight: 400,
+    },
+    "& .ProseMirror [data-para-change-type='insert']::after": { color: "#188038" },
+    "& .ProseMirror [data-para-change-type='delete']::after": { color: "#d93025", textDecoration: "line-through" },
+    "& .ProseMirror [data-props-change]": {
+      backgroundColor: "rgba(142, 36, 170, 0.07)",
+    },
+    // Simple markup: the final text, with a bar beside changed paragraphs.
+    "&.review-simple .ProseMirror .suggestion-delete, &.review-final .ProseMirror .suggestion-delete, &.review-original .ProseMirror .suggestion-insert":
+      { display: "none" },
+    "&.review-simple .ProseMirror .suggestion-insert, &.review-final .ProseMirror .suggestion-insert, &.review-original .ProseMirror .suggestion-delete":
+      { color: "inherit", textDecoration: "inherit" },
+    "&.review-simple .ProseMirror .suggestion-format, &.review-final .ProseMirror .suggestion-format, &.review-original .ProseMirror .suggestion-format":
+      { borderBottom: "none" },
+    "&.review-simple .ProseMirror [data-para-change-type]::after, &.review-final .ProseMirror [data-para-change-type]::after, &.review-original .ProseMirror [data-para-change-type]::after":
+      { content: "none" },
+    "&.review-simple .ProseMirror [data-props-change], &.review-final .ProseMirror [data-props-change], &.review-original .ProseMirror [data-props-change]":
+      { backgroundColor: "transparent" },
+    "&.review-simple .ProseMirror :is(p, h1, h2, h3, h4, h5, h6):is(:has(.suggestion-insert, .suggestion-delete, .suggestion-format), [data-para-change], [data-props-change])":
+      { position: "relative" },
+    "&.review-simple .ProseMirror :is(p, h1, h2, h3, h4, h5, h6):is(:has(.suggestion-insert, .suggestion-delete, .suggestion-format), [data-para-change], [data-props-change])::after":
+      { content: '""', position: "absolute", left: "-14px", top: 0, bottom: 0, width: "3px", borderRadius: "2px", background: "#d93025" },
+    "& .ProseMirror .footnote-ref": {
+      cursor: "pointer",
+      color: "#1a73e8",
+      fontWeight: 600,
+      userSelect: "none",
+    },
+    "& .ProseMirror .footnote-ref::before": {
+      counterIncrement: "footnote",
+      content: '"[" counter(footnote) "]"',
+    },
+    "& .ProseMirror .endnote-ref": {
+      cursor: "pointer",
+      color: "#1a73e8",
+      fontWeight: 600,
+      userSelect: "none",
+    },
+    "& .ProseMirror .endnote-ref::before": {
+      counterIncrement: "endnote",
+      content: '"[" counter(endnote, lower-roman) "]"',
+    },
+    "& .ProseMirror a": {
+      color: "#1a73e8",
+      textDecoration: "underline",
+      cursor: "pointer",
+    },
+    "& .ProseMirror .doc-comment-anchor": {
+      backgroundColor: "rgba(244,180,0,.28)",
+      borderBottom: "2px solid #f4b400",
+      cursor: "pointer",
+    },
+    "& .ProseMirror .doc-comment-anchor--active": {
+      backgroundColor: "rgba(244,180,0,.5)",
+    },
+    "& .ProseMirror th, & .ProseMirror td": {
+      minWidth: "2em",
+      position: "relative",
+    },
+    "& .ProseMirror table:not([data-table-style]) th": { bgcolor: "#f1f3f4", fontWeight: 600 },
+    // Table borders, margins and style templates (Docs M4).
+    ...tableEditorSx,
+    ...referencesSx,
+    "& .ProseMirror .selectedCell::after": {
+      content: '""',
+      position: "absolute",
+      inset: 0,
+      background: "rgba(26,115,232,.15)",
+      pointerEvents: "none",
+    },
+    "& .ProseMirror .column-resize-handle": {
+      position: "absolute",
+      right: "-2px",
+      top: 0,
+      bottom: "-2px",
+      width: "4px",
+      backgroundColor: "#1a73e8",
+      pointerEvents: "none",
+    },
+    "& .ProseMirror.resize-cursor": { cursor: "col-resize" },
+    "& .collaboration-cursor__caret": {
+      borderLeft: "1px solid currentColor",
+      borderRight: "1px solid currentColor",
+      marginLeft: "-1px",
+      marginRight: "-1px",
+      position: "relative",
+      wordBreak: "normal",
+    },
+    "& .collaboration-cursor__label": {
+      position: "absolute",
+      top: "-1.4em",
+      left: "-1px",
+      fontSize: "12px",
+      fontWeight: 600,
+      lineHeight: "normal",
+      color: "#fff",
+      padding: "1px 6px",
+      borderRadius: "4px",
+      whiteSpace: "nowrap",
+    },
+  };
+}
+
+const TABLE_SX = tableSx(".ProseMirror");
+const tableEditorSx = {
+  ...TABLE_SX,
+  "& .ProseMirror table": {
+    borderCollapse: "collapse",
+    width: "100%",
+    margin: "0.5em 0",
+    ...TABLE_SX["& .ProseMirror table"],
+  },
+};
+
+/**
+ * pagedSheetSx turns the page into the paginated view (M9): the sheet is
+ * as wide as the widest page and transparent (PageLayer draws the pages),
+ * its padding puts the text where the first page's text box is, and the
+ * text blocks become block formatting contexts so their margins are
+ * exactly what the pagination measured.
+ */
+export function pagedSheetSx(base: BaseGeom, height: number, hyph?: Hyphenation | null): Record<string, unknown> {
+  return {
+    width: `${base.maxW}px`,
+    maxWidth: "none",
+    minWidth: `${base.maxW}px`,
+    height: `${height}px`,
+    minHeight: 0,
+    pt: `${base.top}px`,
+    pb: 0,
+    pl: `${base.left}px`,
+    "--doc-ml": `${base.left}px`,
+    pr: `${base.maxW - base.left - base.width}px`,
+    bgcolor: "transparent",
+    boxShadow: "none",
+    backgroundImage: "none",
+    "& .ProseMirror": {
+      outline: "none",
+      lineHeight: 1.6,
+      display: "flow-root",
+      position: "relative",
+      zIndex: 1,
+      minHeight: `${Math.max(0, height - base.top - 1)}px`,
+      ...(hyph?.auto
+        ? { hyphens: "auto", WebkitHyphens: "auto", hyphenateLimitChars: "6 3 2", hyphenateLimitZone: `${hyph.zone}pt`, ...(hyph.limit ? { hyphenateLimitLines: hyph.limit } : {}) }
+        : {}),
+    },
+    "& .ProseMirror > *": { display: "flow-root" },
+    "& .ProseMirror > .pg-spacer": { display: "block" },
+  };
+}
+
+/** workspaceSx is the gray canvas the page sits on. */
+export const workspaceSx: SxProps = {
+  bgcolor: "#f1f3f4",
+  py: 4,
+  px: 2,
+  minHeight: "70vh",
+};

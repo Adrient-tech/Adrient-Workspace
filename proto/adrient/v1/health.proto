@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package adrient.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/Adrient-tech/Adrient-Workspace/gen/go/adrient/v1;adrientv1";
+
+// HealthService reports backend liveness and build information.
+service HealthService {
+  // Check returns build/version info and confirms the backend is up.
+  rpc Check(CheckRequest) returns (CheckResponse) {
+    option (google.api.http) = {
+      get: "/healthz"
+    };
+  }
+}
+
+message CheckRequest {}
+
+message CheckResponse {
+  // Semver build version, e.g. "0.1.0".
+  string version = 1;
+  // Git commit SHA the binary was built from.
+  string commit = 2;
+  // Seconds since the process started.
+  int64 uptime_seconds = 3;
+}

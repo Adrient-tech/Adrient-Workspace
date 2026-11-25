@@ -1,0 +1,72 @@
+# CI for the GitHub mirror: build + test the Go backend, type-check and unit
+# test the web app. Uses no secrets; safe to run on pull requests from forks.
+# (Forgejo runs the equivalent .forgejo/workflows/checks.yaml.)
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.2-alpine
+        env:
+          POSTGRES_USER: adrient
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U adrient" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      GOTOOLCHAIN: local
+      # Integration tests create and drop their own scratch databases here.
+      ADRIENT_TEST_ADMIN_DSN: postgres://adrient@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Generate protobuf code (gen/ is not committed)
+        run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.64.0
+          buf dep update && buf generate
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Migrations apply to an empty database and re-apply cleanly
+        run: go test -count=1 -run 'Migration|Preflight' -v ./internal/storage/
+      - name: Backup / restore round trip
+        run: go test -count=1 -run 'RoundTrip|ExportOrg' -v ./internal/adminops/
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/app/package-lock.json
+      - run: npm ci --no-fund --no-audit
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: Unit tests
+        run: npx vitest run

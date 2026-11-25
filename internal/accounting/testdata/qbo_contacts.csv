@@ -1,0 +1,4 @@
+Customer,Company,Email,Phone,GSTIN
+Acme Traders,Acme Traders Pvt Ltd,billing@acme.test,9876543210,27AAPFU0939F1ZV
+Globex,Globex Corp,not-an-email,,
+Initech,,,,27AAPFU0939F1ZX

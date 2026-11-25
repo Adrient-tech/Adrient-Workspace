@@ -1,0 +1,26 @@
+# Build context excludes — keep it lean and reproducible.
+.git
+.direnv
+node_modules
+web/app/node_modules
+web/app/dist
+# gen/ is regenerated inside the build via `buf generate` (remote plugins).
+gen
+# PDF: the Go backend now lives in internal/pdf (built into adrient). Only the
+# pdf/frontend SPA is needed by the build (the pdfweb Docker stage bundles it);
+# exclude the rest of pdf/ plus the frontend's node_modules/dist to stay lean.
+pdf
+!pdf/frontend
+pdf/frontend/node_modules
+pdf/frontend/dist
+# Local capture material + process-compose runtime data.
+research
+deploy/process-compose/data
+# Docs / specs / archives not needed at build.
+**/*.md
+!web/app/**
+# Python caches / HA integration tests (the integration itself is embedded).
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+integrations/homeassistant/tests

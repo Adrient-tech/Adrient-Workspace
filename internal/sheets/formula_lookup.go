@@ -1,0 +1,1029 @@
+package sheets
+
+// formula_lookup.go — Excel-compatible LOOKUP / REFERENCE worksheet functions.
+//
+// All functions here return a single scalar value (no array spill). They build
+// on the shared engine API declared in formula.go: value/rangeVal/callCtx and
+// the registerFunc mechanism. Unexported helpers in this file are prefixed with
+// "lkp" to avoid colliding with the rest of the package.
+//
+// Error semantics (per spec):
+//   - Input errors propagate (a #REF!/#VALUE!/etc. in lookup/needle short-circuits).
+//   - No match → #N/A.
+//   - Out-of-range index → #REF!.
+//   - Bad arguments → #VALUE!.
+
+import (
+	"math"
+	"strconv"
+	"strings"
+)
+
+func init() {
+	registerFunc("VLOOKUP", fnVLookup)
+	registerFunc("HLOOKUP", fnHLookup)
+	registerFunc("LOOKUP", fnLookup)
+	registerFunc("INDEX", fnIndex)
+	registerFunc("MATCH", fnMatch)
+	registerFunc("XMATCH", fnXMatch)
+	registerFunc("XLOOKUP", fnXLookup)
+	registerFunc("CHOOSE", fnChoose)
+	registerFunc("ROW", fnRow)
+	registerFunc("COLUMN", fnColumn)
+	registerFunc("ROWS", fnRows)
+	registerFunc("COLUMNS", fnColumns)
+	registerFunc("ADDRESS", fnAddress)
+	registerFunc("INDIRECT", fnIndirect)
+}
+
+// ---- comparison helpers -----------------------------------------------------
+
+// lkpCompare orders two values for sorted/approximate matching. It returns
+// -1 if a<b, 0 if a==b, +1 if a>b. Numbers compare numerically; everything
+// else compares as case-insensitive text. Numbers sort before text (as Excel
+// does within a single column of mixed types).
+func lkpCompare(a, b value) int {
+	an, aok := lkpNumeric(a)
+	bn, bok := lkpNumeric(b)
+	switch {
+	case aok && bok:
+		switch {
+		case an < bn:
+			return -1
+		case an > bn:
+			return 1
+		default:
+			return 0
+		}
+	case aok && !bok:
+		return -1 // numbers sort before text
+	case !aok && bok:
+		return 1
+	default:
+		as := strings.ToUpper(a.toStr())
+		bs := strings.ToUpper(b.toStr())
+		return strings.Compare(as, bs)
+	}
+}
+
+// lkpNumeric reports the numeric value of v, but only treats genuine numbers and
+// booleans as numeric. A string is treated as text even if it parses as a number,
+// so "10" and 10 are kept in distinct ordering domains (matching Excel's typed
+// comparison in lookup columns).
+func lkpNumeric(v value) (float64, bool) {
+	switch v.kind {
+	case kindNum, kindBool:
+		return v.num, true
+	}
+	return 0, false
+}
+
+// lkpEqual reports whether needle exactly equals cell. When the needle is text
+// containing wildcards (* ?), wildcard matching is used. Numbers/booleans
+// compare numerically; text compares case-insensitively.
+func lkpEqual(needle, cell value) bool {
+	if needle.kind == kindStr && strings.ContainsAny(needle.str, "*?") {
+		if re := wildcardToRegexp(needle.str); re != nil {
+			return re.MatchString(cell.toStr())
+		}
+	}
+	nn, nok := lkpNumeric(needle)
+	cn, cok := lkpNumeric(cell)
+	if nok && cok {
+		return nn == cn
+	}
+	if nok != cok {
+		return false // number never equals text
+	}
+	return strings.EqualFold(needle.toStr(), cell.toStr())
+}
+
+// lkpFirstErr returns the first error among the supplied values (or a zero
+// value, false) — used to propagate input errors.
+func lkpFirstErr(vals ...value) (value, bool) {
+	for _, v := range vals {
+		if v.isErr() {
+			return v, true
+		}
+	}
+	return value{}, false
+}
+
+// lkpApproxIndex finds the position (0-based) of the largest entry ≤ needle in
+// an assumed-ascending slice. Returns -1 when needle is smaller than the first
+// entry (→ caller returns #N/A). Errors in scanned cells propagate via the
+// returned error value.
+func lkpApproxIndex(needle value, cells []value) (int, value, bool) {
+	best := -1
+	for i, c := range cells {
+		if c.isErr() {
+			return -1, c, true
+		}
+		// Skip cells of a different type domain than the needle: an approximate
+		// scan walks while cell ≤ needle.
+		if lkpCompare(c, needle) <= 0 {
+			best = i
+		} else {
+			break // ascending: once we pass needle, stop.
+		}
+	}
+	return best, value{}, false
+}
+
+// ---- VLOOKUP / HLOOKUP ------------------------------------------------------
+
+func fnVLookup(c *callCtx) value { return lkpVH(c, true) }
+func fnHLookup(c *callCtx) value { return lkpVH(c, false) }
+
+// lkpVH implements VLOOKUP (vertical=true) and HLOOKUP (vertical=false).
+func lkpVH(c *callCtx, vertical bool) value {
+	if c.nargs() < 3 {
+		return errValue
+	}
+	needle := c.scalar(0)
+	if needle.isErr() {
+		return needle
+	}
+	table, ok := c.rangeArg(1)
+	if !ok {
+		return errValue
+	}
+	idxF, iok := c.num(2)
+	if !iok {
+		return errValue
+	}
+	index := int(math.Trunc(idxF)) // 1-based result row/col
+	if index < 1 {
+		return errValue
+	}
+	// range_lookup defaults to TRUE (approximate).
+	approx := true
+	if c.nargs() >= 4 {
+		rl := c.scalar(3)
+		if rl.isErr() {
+			return rl
+		}
+		approx = rl.isTruthy()
+	}
+
+	// Build the search line (first column for V, first row for H) and bound-check
+	// the result index.
+	var line []value
+	if vertical {
+		if index > table.cols {
+			return errRef
+		}
+		line = make([]value, table.rows)
+		for r := 0; r < table.rows; r++ {
+			line[r] = table.cells[r][0]
+		}
+	} else {
+		if index > table.rows {
+			return errRef
+		}
+		line = make([]value, table.cols)
+		for cc := 0; cc < table.cols; cc++ {
+			line[cc] = table.cells[0][cc]
+		}
+	}
+
+	pos := -1
+	if approx {
+		p, errv, has := lkpApproxIndex(needle, line)
+		if has {
+			return errv
+		}
+		pos = p
+	} else {
+		for i, cell := range line {
+			if cell.isErr() {
+				return cell
+			}
+			if lkpEqual(needle, cell) {
+				pos = i
+				break
+			}
+		}
+	}
+	if pos < 0 {
+		return errNA
+	}
+	if vertical {
+		return table.cells[pos][index-1]
+	}
+	return table.cells[index-1][pos]
+}
+
+// ---- LOOKUP (vector form) ---------------------------------------------------
+
+// LOOKUP(lookup, lookup_range, [result_range]) — approximate match against an
+// assumed-ascending lookup vector. When result_range is omitted the matched
+// value from lookup_range itself is returned. result_range may be a row or a
+// column; the matched position indexes into its flattened cells.
+func fnLookup(c *callCtx) value {
+	if c.nargs() < 2 {
+		return errValue
+	}
+	needle := c.scalar(0)
+	if needle.isErr() {
+		return needle
+	}
+	lookupRange, ok := c.rangeArg(1)
+	if !ok {
+		return errValue
+	}
+	lookupCells := lookupRange.flat()
+	pos, errv, has := lkpApproxIndex(needle, lookupCells)
+	if has {
+		return errv
+	}
+	if pos < 0 {
+		return errNA
+	}
+	resultCells := lookupCells
+	if c.nargs() >= 3 {
+		resultRange, rok := c.rangeArg(2)
+		if !rok {
+			return errValue
+		}
+		resultCells = resultRange.flat()
+	}
+	if pos >= len(resultCells) {
+		return errRef
+	}
+	return resultCells[pos]
+}
+
+// ---- INDEX ------------------------------------------------------------------
+
+// INDEX(rangeVal, row_num, [col_num]) — 1-based. A row_num/col_num of 0 means
+// "entire column/row". Because this engine returns a single scalar (no array
+// spill), the result must resolve to exactly one cell; otherwise #REF!.
+//
+//   - INDEX(r, i, j)            → cell (i,j)
+//   - INDEX(r, i)   single col  → cell (i,1)
+//   - INDEX(r, i)   single row  → cell (1,i)  (i indexes the columns)
+//   - INDEX(r, 0, j)            → only valid when r has a single row
+//   - INDEX(r, i, 0)            → only valid when r has a single column
+func fnIndex(c *callCtx) value {
+	if c.nargs() < 2 {
+		return errValue
+	}
+	if v, ok := indexRef(c); ok {
+		return v
+	}
+	rng, ok := c.rangeArg(0)
+	if !ok {
+		return errValue
+	}
+	rowF, rok := c.num(1)
+	if !rok {
+		return errValue
+	}
+	rowNum := int(math.Trunc(rowF)) // 1-based, 0 = whole column
+	if rowNum < 0 {
+		return errValue
+	}
+
+	hasCol := c.nargs() >= 3
+	colNum := 0
+	if hasCol {
+		colF, cok := c.num(2)
+		if !cok {
+			return errValue
+		}
+		colNum = int(math.Trunc(colF)) // 1-based, 0 = whole row
+		if colNum < 0 {
+			return errValue
+		}
+	}
+
+	// Two-argument form: the single index addresses the vector dimension.
+	if !hasCol {
+		if rng.rows == 1 {
+			// Single row: index selects a column.
+			if rowNum == 0 {
+				if rng.cols != 1 {
+					return errRef // whole row isn't a single cell
+				}
+				return rng.cells[0][0]
+			}
+			if rowNum > rng.cols {
+				return errRef
+			}
+			return rng.cells[0][rowNum-1]
+		}
+		if rng.cols == 1 {
+			// Single column: index selects a row.
+			if rowNum == 0 {
+				if rng.rows != 1 {
+					return errRef
+				}
+				return rng.cells[0][0]
+			}
+			if rowNum > rng.rows {
+				return errRef
+			}
+			return rng.cells[rowNum-1][0]
+		}
+		// A 2-D array with an empty or 0 index: the whole array.
+		if rowNum == 0 {
+			return arrayValue(rng.cells)
+		}
+		if rowNum > rng.rows {
+			return errRef
+		}
+		// Excel treats INDEX(2Darea, n) as the n-th column of the first row only
+		// when rows==1; otherwise it needs col_num. Without it, no single cell.
+		return errRef
+	}
+
+	// Three-argument form.
+	switch {
+	case rowNum == 0 && colNum == 0:
+		return arrayValue(rng.cells) // the whole array
+	case rowNum == 0:
+		// The whole column colNum.
+		if colNum > rng.cols {
+			return errRef
+		}
+		col := make([][]value, rng.rows)
+		for r := range col {
+			col[r] = []value{rng.cells[r][colNum-1]}
+		}
+		return arrayValue(col)
+	case colNum == 0:
+		// The whole row rowNum.
+		if rowNum > rng.rows {
+			return errRef
+		}
+		return arrayValue([][]value{append([]value(nil), rng.cells[rowNum-1]...)})
+	default:
+		if rowNum > rng.rows || colNum > rng.cols {
+			return errRef
+		}
+		return rng.cells[rowNum-1][colNum-1]
+	}
+}
+
+// ---- MATCH ------------------------------------------------------------------
+
+// MATCH(lookup, rangeVal, [match_type=1]) → 1-based position within the range
+// (flattened row-major; the range is expected to be a single row or column).
+//
+//	match_type  1 → largest value ≤ lookup, assumes ascending
+//	match_type  0 → first exact match (wildcards supported)
+//	match_type -1 → smallest value ≥ lookup, assumes descending
+func fnMatch(c *callCtx) value {
+	if c.nargs() < 2 {
+		return errValue
+	}
+	needle := c.scalar(0)
+	if needle.isErr() {
+		return needle
+	}
+	rng, ok := c.rangeArg(1)
+	if !ok {
+		return errValue
+	}
+	matchType := 1
+	if c.nargs() >= 3 {
+		mt, mok := c.num(2)
+		if !mok {
+			return errValue
+		}
+		matchType = int(math.Trunc(mt))
+	}
+	cells := rng.flat()
+
+	switch {
+	case matchType == 0:
+		for i, cell := range cells {
+			if cell.isErr() {
+				return cell
+			}
+			if lkpEqual(needle, cell) {
+				return numVal(float64(i + 1))
+			}
+		}
+		return errNA
+	case matchType > 0:
+		// Ascending: largest cell ≤ needle.
+		best := -1
+		for i, cell := range cells {
+			if cell.isErr() {
+				return cell
+			}
+			if lkpCompare(cell, needle) <= 0 {
+				best = i
+			} else {
+				break
+			}
+		}
+		if best < 0 {
+			return errNA
+		}
+		return numVal(float64(best + 1))
+	default:
+		// Descending: smallest cell ≥ needle.
+		best := -1
+		for i, cell := range cells {
+			if cell.isErr() {
+				return cell
+			}
+			if lkpCompare(cell, needle) >= 0 {
+				best = i
+			} else {
+				break
+			}
+		}
+		if best < 0 {
+			return errNA
+		}
+		return numVal(float64(best + 1))
+	}
+}
+
+// ---- XMATCH / XLOOKUP --------------------------------------------------------
+
+// xlModes reads XMATCH/XLOOKUP's match_mode and search_mode arguments at mi
+// and si (empty or absent: 0 and 1). Other values are #VALUE!.
+func xlModes(c *callCtx, mi, si int) (int, int, *value) {
+	matchMode, searchMode := 0, 1
+	if !c.omitted(mi) {
+		f, ok := c.num(mi)
+		if !ok {
+			return 0, 0, &errValue
+		}
+		matchMode = int(math.Trunc(f))
+	}
+	if !c.omitted(si) {
+		f, ok := c.num(si)
+		if !ok {
+			return 0, 0, &errValue
+		}
+		searchMode = int(math.Trunc(f))
+	}
+	if matchMode < -1 || matchMode > 2 || (searchMode != 1 && searchMode != -1 && searchMode != 2 && searchMode != -2) {
+		return 0, 0, &errValue
+	}
+	if matchMode == 2 && (searchMode == 2 || searchMode == -2) {
+		return 0, 0, &errValue // wildcards need a linear search
+	}
+	return matchMode, searchMode, nil
+}
+
+// xlRank orders value types the way Excel sorts them: numbers, text,
+// logicals. Empty cells and errors never match (-1).
+func xlRank(v value) int {
+	switch {
+	case v.isErr(), v.blank, isEmptyArg(v):
+		return -1
+	case v.kind == kindNum:
+		return 0
+	case v.kind == kindStr:
+		return 1
+	case v.kind == kindBool:
+		return 2
+	}
+	return -1
+}
+
+// xlCompare orders two matchable values: by type rank, then by value (text
+// case-insensitively).
+func xlCompare(a, b value) int {
+	ra, rb := xlRank(a), xlRank(b)
+	if ra != rb {
+		if ra < rb {
+			return -1
+		}
+		return 1
+	}
+	switch ra {
+	case 1:
+		return strings.Compare(strings.ToUpper(a.str), strings.ToUpper(b.str))
+	default:
+		switch {
+		case a.num < b.num:
+			return -1
+		case a.num > b.num:
+			return 1
+		}
+	}
+	return 0
+}
+
+// xlFind returns the 0-based position XMATCH/XLOOKUP pick in cells, or -1.
+//
+//	match_mode 0 exact, -1 exact or next smaller, 1 exact or next larger,
+//	2 wildcards (* ? ~) in a text lookup value;
+//	search_mode 1 first to last, -1 last to first, 2 / -2 for data sorted
+//	ascending / descending.
+//
+// An exact match needs the same type (1 never matches "1" or TRUE); the next
+// smaller/larger value follows xlCompare across types. Errors in the lookup
+// array are skipped, and so are empty cells unless the lookup value is an
+// empty cell too. The binary modes search linearly in the same direction:
+// on sorted data that finds the same value, and on unsorted data (where a
+// binary search's answer is undefined) the result stays predictable.
+func xlFind(needle value, cells []value, matchMode, searchMode int) int {
+	n := len(cells)
+	if needle.blank {
+		for i := 0; i < n; i++ {
+			j := i
+			if searchMode < 0 {
+				j = n - 1 - i
+			}
+			if cells[j].blank {
+				return j
+			}
+		}
+		return -1
+	}
+	order := make([]int, n)
+	for i := range order {
+		if searchMode < 0 {
+			order[i] = n - 1 - i
+		} else {
+			order[i] = i
+		}
+	}
+	nr := xlRank(needle)
+	if nr < 0 {
+		return -1
+	}
+	if matchMode == 2 && needle.kind == kindStr {
+		re := wildcardToRegexp(needle.str)
+		for _, i := range order {
+			if cells[i].kind == kindStr && xlRank(cells[i]) == 1 && re != nil && re.MatchString(cells[i].str) {
+				return i
+			}
+		}
+		return -1
+	}
+	best := -1
+	for _, i := range order {
+		x := cells[i]
+		if xlRank(x) < 0 {
+			continue
+		}
+		cmp := xlCompare(x, needle)
+		if cmp == 0 {
+			return i
+		}
+		switch {
+		case matchMode == -1 && cmp < 0 && (best < 0 || xlCompare(x, cells[best]) > 0):
+			best = i
+		case matchMode == 1 && cmp > 0 && (best < 0 || xlCompare(x, cells[best]) < 0):
+			best = i
+		}
+	}
+	return best
+}
+
+// xlVector returns a lookup array's cells if it is one row or one column.
+func xlVector(r rangeVal) ([]value, bool) {
+	if r.rows > 1 && r.cols > 1 {
+		return nil, false
+	}
+	return r.flat(), true
+}
+
+// XMATCH(lookup_value, lookup_array, [match_mode], [search_mode]) — the
+// 1-based position of the match (see xlFind), #N/A when there is none.
+func fnXMatch(c *callCtx) value {
+	if c.nargs() < 2 || c.nargs() > 4 {
+		return errValue
+	}
+	needle := c.scalar(0)
+	if needle.isErr() {
+		return needle
+	}
+	rng, ok := c.rangeArg(1)
+	if !ok || c.omitted(1) {
+		return errValue
+	}
+	matchMode, searchMode, e := xlModes(c, 2, 3)
+	if e != nil {
+		return *e
+	}
+	cells, ok := xlVector(rng)
+	if !ok {
+		return errValue
+	}
+	if pos := xlFind(needle, cells, matchMode, searchMode); pos >= 0 {
+		return numVal(float64(pos + 1))
+	}
+	return errNA
+}
+
+// XLOOKUP(lookup_value, lookup_array, return_array, [if_not_found],
+// [match_mode], [search_mode]) — the row (for a lookup column) or column
+// (for a lookup row) of return_array at the match; return_array must be as
+// long as lookup_array. No match: if_not_found when given, else #N/A.
+func fnXLookup(c *callCtx) value {
+	if c.nargs() < 3 || c.nargs() > 6 {
+		return errValue
+	}
+	needle := c.scalar(0)
+	if needle.isErr() {
+		return needle
+	}
+	lookupRange, ok1 := c.rangeArg(1)
+	returnRange, ok2 := c.rangeArg(2)
+	if !ok1 || !ok2 {
+		return errValue
+	}
+	matchMode, searchMode, e := xlModes(c, 4, 5)
+	if e != nil {
+		return *e
+	}
+	cells, ok := xlVector(lookupRange)
+	if !ok {
+		return errValue
+	}
+	vertical := lookupRange.cols == 1 && (lookupRange.rows > 1 || returnRange.cols > 1 || returnRange.rows == 1)
+	if vertical && returnRange.rows != lookupRange.rows || !vertical && returnRange.cols != lookupRange.cols {
+		return errValue
+	}
+	pos := xlFind(needle, cells, matchMode, searchMode)
+	if pos < 0 {
+		if c.nargs() >= 4 && !c.omitted(3) {
+			return asValue(c.raw(3))
+		}
+		return errNA
+	}
+	var out [][]value
+	if vertical {
+		out = [][]value{append([]value(nil), returnRange.cells[pos]...)}
+	} else {
+		for _, row := range returnRange.cells {
+			out = append(out, []value{row[pos]})
+		}
+	}
+	return arrayValue(out)
+}
+
+// ---- CHOOSE -----------------------------------------------------------------
+
+// CHOOSE(index, v1, v2, ...) — returns the index-th (1-based) subsequent
+// argument. Arguments are already evaluated; we just pick via c.scalar.
+func fnChoose(c *callCtx) value {
+	if c.nargs() < 2 {
+		return errValue
+	}
+	idxF, ok := c.num(0)
+	if !ok {
+		return errValue
+	}
+	idx := int(math.Trunc(idxF))
+	if idx < 1 || idx > c.nargs()-1 {
+		return errValue
+	}
+	// The chosen argument is returned whole, so CHOOSE(2,A1,B1:B3) is still a
+	// reference (usable in SUM(A1:CHOOSE(...)), ROWS, …).
+	return asValue(c.raw(idx))
+}
+
+// ---- ROW / COLUMN -----------------------------------------------------------
+
+// ROW([ref]) — the 1-based row of a reference (the formula cell when omitted).
+// A reference spanning several rows yields a column of row numbers.
+func fnRow(c *callCtx) value { return rowColOf(c, true) }
+
+// COLUMN([ref]) — mirrors ROW for columns (a row of column numbers).
+func fnColumn(c *callCtx) value { return rowColOf(c, false) }
+
+func rowColOf(c *callCtx, rows bool) value {
+	if c.nargs() == 0 {
+		if rows {
+			return numVal(float64(c.ev.curRow + 1))
+		}
+		return numVal(float64(c.ev.curCol + 1))
+	}
+	r := c.refArg(0)
+	if r == nil {
+		if v := c.scalar(0); v.isErr() {
+			return v
+		}
+		return errValue
+	}
+	a := r.first()
+	lo, hi := a.c1, a.c2
+	if rows {
+		lo, hi = a.r1, a.r2
+	}
+	n := hi - lo + 1
+	if n == 1 || n > clipThreshold {
+		return numVal(float64(lo + 1))
+	}
+	cells := make([][]value, 0, n)
+	if rows {
+		for i := 0; i < n; i++ {
+			cells = append(cells, []value{numVal(float64(lo + i + 1))})
+		}
+	} else {
+		row := make([]value, n)
+		for i := range row {
+			row[i] = numVal(float64(lo + i + 1))
+		}
+		cells = append(cells, row)
+	}
+	return arrayValue(cells)
+}
+
+// ROWS(ref or array) — number of rows (a reference keeps its full size, so
+// ROWS(A:A) is 1048576).
+func fnRows(c *callCtx) value {
+	if c.nargs() < 1 {
+		return errValue
+	}
+	if r := c.refArg(0); r != nil {
+		if len(r.areas) != 1 {
+			return errRef
+		}
+		return numVal(float64(r.first().rows()))
+	}
+	rng, ok := c.rangeArg(0)
+	if !ok {
+		return errValue
+	}
+	return numVal(float64(rng.rows))
+}
+
+// COLUMNS(ref or array) — number of columns.
+func fnColumns(c *callCtx) value {
+	if c.nargs() < 1 {
+		return errValue
+	}
+	if r := c.refArg(0); r != nil {
+		if len(r.areas) != 1 {
+			return errRef
+		}
+		return numVal(float64(r.first().cols()))
+	}
+	rng, ok := c.rangeArg(0)
+	if !ok {
+		return errValue
+	}
+	return numVal(float64(rng.cols))
+}
+
+// ---- ADDRESS ----------------------------------------------------------------
+
+// ADDRESS(row, col, [abs=1], [a1=TRUE], [sheet_text]) — builds a cell address.
+//
+//	abs 1 → $A$1 / R1C1    2 → A$1 / R1C[1]    3 → $A1 / R[1]C1    4 → A1 / R[1]C[1]
+//
+// In R1C1 style a "relative" part is written in brackets with the number
+// given. sheet_text, when present, prefixes the (quoted if needed) sheet name.
+func fnAddress(c *callCtx) value {
+	if c.nargs() < 2 || c.nargs() > 5 {
+		return errValue
+	}
+	nums := [3]float64{0, 0, 1}
+	for i := 0; i < 3 && i < c.nargs(); i++ {
+		if i == 2 && c.omitted(i) {
+			continue
+		}
+		v := c.scalar(i)
+		if v.isErr() {
+			return v
+		}
+		n, ok := v.toNum()
+		if !ok {
+			return errValue
+		}
+		nums[i] = n
+	}
+	row, col, absType := int(math.Trunc(nums[0])), int(math.Trunc(nums[1])), int(math.Trunc(nums[2]))
+	if row < 1 || col < 1 || row > maxSheetRows || col > maxSheetCols || absType < 1 || absType > 4 {
+		return errValue
+	}
+	a1 := true
+	if c.nargs() >= 4 && !c.omitted(3) {
+		v := c.scalar(3)
+		if v.isErr() {
+			return v
+		}
+		a1 = v.isTruthy()
+	}
+	absRow := absType == 1 || absType == 2
+	absCol := absType == 1 || absType == 3
+	var b strings.Builder
+	if c.nargs() >= 5 && !c.omitted(4) {
+		v := c.scalar(4)
+		if v.isErr() {
+			return v
+		}
+		if !v.blank {
+			b.WriteString(quoteSheetName(v.toStr()))
+		}
+		b.WriteByte('!')
+	}
+	if a1 {
+		letters, digits := lkpSplitA1(addrToName(row-1, col-1))
+		if absCol {
+			b.WriteByte('$')
+		}
+		b.WriteString(letters)
+		if absRow {
+			b.WriteByte('$')
+		}
+		b.WriteString(digits)
+		return strVal(b.String())
+	}
+	b.WriteByte('R')
+	if absRow {
+		b.WriteString(itoa(row))
+	} else {
+		b.WriteString("[" + itoa(row) + "]")
+	}
+	b.WriteByte('C')
+	if absCol {
+		b.WriteString(itoa(col))
+	} else {
+		b.WriteString("[" + itoa(col) + "]")
+	}
+	return strVal(b.String())
+}
+
+// lkpSplitA1 splits an "A1" style name into its column letters and row digits.
+func lkpSplitA1(name string) (letters, digits string) {
+	i := 0
+	for i < len(name) && name[i] >= 'A' && name[i] <= 'Z' {
+		i++
+	}
+	return name[:i], name[i:]
+}
+
+// ---- INDIRECT ---------------------------------------------------------------
+
+// INDIRECT(ref_text, [a1=TRUE]) — the reference spelled by ref_text: a cell,
+// range, whole column/row, sheet-qualified reference or defined name. With
+// a1=FALSE the text is R1C1 style (R2C3, R[1]C[-1], relative to the formula
+// cell). Text that is not a valid reference is #REF!.
+func fnIndirect(c *callCtx) value {
+	if c.nargs() < 1 || c.nargs() > 2 {
+		return errValue
+	}
+	refv := c.scalar(0)
+	if refv.isErr() {
+		return refv
+	}
+	a1 := true
+	if c.nargs() >= 2 {
+		v := c.scalar(1)
+		if v.isErr() {
+			return v
+		}
+		a1 = v.isTruthy()
+	}
+	text := strings.TrimSpace(refv.toStr())
+	if !a1 {
+		conv, ok := r1c1ToA1(text, c.ev.curRow, c.ev.curCol)
+		if !ok {
+			return errRef
+		}
+		text = conv
+	}
+	sub := &parser{tokens: tokenise(text), ev: c.ev}
+	v := sub.parseExpr()
+	if sub.pos < len(sub.tokens) || v.ref == nil {
+		return errRef
+	}
+	return v
+}
+
+// r1c1ToA1 converts an R1C1 reference (optionally sheet-qualified, optionally
+// a range) to A1 text. Bracketed parts are relative to (row, col).
+func r1c1ToA1(s string, row, col int) (string, bool) {
+	prefix := ""
+	if i := strings.LastIndex(s, "!"); i >= 0 {
+		prefix, s = s[:i+1], s[i+1:]
+	}
+	parts := strings.Split(strings.ToUpper(s), ":")
+	if len(parts) > 2 {
+		return "", false
+	}
+	out := make([]string, 0, 2)
+	for _, p := range parts {
+		a, ok := r1c1Part(p, row, col)
+		if !ok {
+			return "", false
+		}
+		out = append(out, a)
+	}
+	return prefix + strings.Join(out, ":"), true
+}
+
+func r1c1Part(p string, row, col int) (string, bool) {
+	if !strings.HasPrefix(p, "R") {
+		return "", false
+	}
+	p = p[1:]
+	num := func(s string, base int) (int, string, bool) {
+		if strings.HasPrefix(s, "[") {
+			end := strings.Index(s, "]")
+			if end < 0 {
+				return 0, "", false
+			}
+			n, err := strconv.Atoi(s[1:end])
+			if err != nil {
+				return 0, "", false
+			}
+			return base + n, s[end+1:], true
+		}
+		j := 0
+		for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+			j++
+		}
+		if j == 0 {
+			return base, s, true // bare R or C: the formula's own row/column
+		}
+		n, _ := strconv.Atoi(s[:j])
+		return n - 1, s[j:], true
+	}
+	r, rest, ok := num(p, row)
+	if !ok || !strings.HasPrefix(rest, "C") {
+		return "", false
+	}
+	cc, rest, ok := num(rest[1:], col)
+	if !ok || rest != "" || r < 0 || cc < 0 || r >= maxSheetRows || cc >= maxSheetCols {
+		return "", false
+	}
+	return addrToName(r, cc), true
+}
+
+// indexRef is the reference form of INDEX: when the first argument is a
+// reference, the result is a reference too (so ROW(INDEX(A1:B3,2,1)) is 2 and
+// A1:INDEX(...) builds a range). It mirrors fnIndex's selection rules and adds
+// the area_num argument for unions. ok=false leaves the array form to fnIndex.
+func indexRef(c *callCtx) (value, bool) {
+	r := c.refArg(0)
+	if r == nil || c.nargs() > 4 {
+		return value{}, false
+	}
+	idx := make([]int, 0, 3)
+	for i := 1; i < c.nargs(); i++ {
+		v := c.scalar(i)
+		if v.isErr() {
+			return v, true
+		}
+		n, ok := v.toNum()
+		if !ok {
+			return errValue, true
+		}
+		idx = append(idx, int(math.Trunc(n)))
+	}
+	areaNum := 1
+	if len(idx) == 3 {
+		areaNum = idx[2]
+	}
+	if areaNum < 1 || areaNum > len(r.areas) {
+		return errRef, true
+	}
+	a := r.areas[areaNum-1]
+	rowNum, colNum, hasCol := idx[0], 0, len(idx) >= 2
+	if hasCol {
+		colNum = idx[1]
+	}
+	if rowNum < 0 || colNum < 0 {
+		return errValue, true
+	}
+	if !hasCol {
+		switch {
+		case a.rows() == 1:
+			rowNum, colNum = 1, rowNum
+			if colNum == 0 && a.cols() != 1 {
+				return errRef, true
+			}
+		case a.cols() == 1:
+			colNum = 1
+			if rowNum == 0 {
+				return errRef, true
+			}
+		default:
+			return errRef, true
+		}
+	}
+	out := a
+	if rowNum > 0 {
+		if rowNum > a.rows() {
+			return errRef, true
+		}
+		out.r1, out.r2 = a.r1+rowNum-1, a.r1+rowNum-1
+	}
+	if colNum > 0 {
+		if colNum > a.cols() {
+			return errRef, true
+		}
+		out.c1, out.c2 = a.c1+colNum-1, a.c1+colNum-1
+	}
+	multi := out.rows()*out.cols() > 1
+	if multi && !(rowNum == 0 && colNum == 0) {
+		// A whole row/column slice of a 2-D range is #REF! (as fnIndex).
+		return errRef, true
+	}
+	return c.ev.refValue(r.sheet, multi, out), true
+}

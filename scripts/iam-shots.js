@@ -1,0 +1,41 @@
+// Browser run for the security operations console: screenshots at 1440x900.
+// usage: OUT=/dir node scripts/iam-shots.js   (port 8152, scratch database)
+const { chromium } = require('/mnt/Windows/tmp/zentrix-qa-playwright/node_modules/playwright-core');
+(async () => {
+  const out = process.env.OUT || '.';
+  const b = await chromium.launch({ executablePath: process.env.HOME + '/.cache/ms-playwright/chromium-1247/chrome-linux64/chrome' });
+  const c = await b.newContext({ viewport: { width: 1440, height: 900 } });
+  const B = 'http://workspace.localtest.me:8152';
+  const r = await c.request.post(B + '/api/v1/auth/login-password', { data: { username: 'admin@adrient.localtest.me', password: process.env.IAM_PW } });
+  console.log('login', r.status());
+  const pg = await c.newPage();
+  await pg.goto(B + '/admin/secops');
+  await pg.waitForSelector('[data-testid=alerts-tab]', { timeout: 30000 });
+  await pg.waitForTimeout(1200);
+  await pg.screenshot({ path: out + '/s1-alerts.png' });
+  await pg.locator('[data-testid=alert-row]').first().click();
+  await pg.waitForSelector('[data-testid=alert-detail]');
+  await pg.waitForTimeout(800);
+  await pg.screenshot({ path: out + '/s2-alert-detail.png' });
+  await pg.keyboard.press('Escape');
+  await pg.waitForTimeout(400);
+  await pg.click('[data-testid=tab-people]');
+  await pg.fill('[data-testid=people-search]', 'w9iam');
+  await pg.waitForTimeout(900);
+  await pg.locator('[data-testid=person-row]').first().click();
+  await pg.waitForSelector('[data-testid=user-security]');
+  await pg.waitForTimeout(4000);
+  await pg.screenshot({ path: out + '/s3-user-security.png' });
+  await pg.click('[data-testid="act-password.reset_link"]');
+  await pg.waitForSelector('[data-testid=action-dialog]');
+  await pg.fill('[data-testid=action-reason]', 'browser test reset');
+  await pg.click('[data-testid=action-confirm]');
+  await pg.waitForSelector('[data-testid=action-result]');
+  await pg.screenshot({ path: out + '/s4-action-result.png' });
+  await pg.click('[data-testid=action-close]');
+  await pg.goto(B + '/security');
+  await pg.waitForSelector('[data-testid=my-security]');
+  await pg.waitForTimeout(1200);
+  await pg.screenshot({ path: out + '/s5-my-security.png' });
+  await b.close();
+})().catch((e) => { console.error(e); process.exit(1); });

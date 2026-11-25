@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Snap</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, #123a5c 0%, #0c2740 100%);
+    color: #f4f0e6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100%;
+    padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom);
+    touch-action: manipulation;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+  }
+  h1 {
+    font-size: clamp(26px, 9vw, 40px);
+    font-weight: 800;
+    letter-spacing: 5px;
+    color: #ffd34d;
+    text-shadow: 0 2px 0 #5a3e00, 0 0 18px rgba(255,211,77,.35);
+  }
+  .counts {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+  }
+  .count {
+    flex: 1;
+    background: rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 12px;
+    padding: 8px 6px;
+    text-align: center;
+    transition: border-color .15s, background .15s;
+  }
+  .count.win { border-color: #5bd66f; background: rgba(91,214,111,.18); }
+  .count .lbl { font-size: 12px; opacity: .8; letter-spacing: 1px; text-transform: uppercase; }
+  .count .num { font-size: 26px; font-weight: 800; line-height: 1.1; }
+
+  .table {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    min-height: 0;
+  }
+  .piles {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: clamp(18px, 7vw, 44px);
+  }
+  .slot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .slot .who { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; opacity: .75; }
+
+  /* card sizing */
+  .card {
+    --w: clamp(78px, 24vw, 110px);
+    width: var(--w);
+    height: calc(var(--w) * 1.4);
+    border-radius: 10px;
+    position: relative;
+    box-shadow: 0 4px 10px rgba(0,0,0,.4);
+  }
+  /* face-down back */
+  .card.back {
+    background:
+      repeating-linear-gradient(45deg, #1b6fb3 0 7px, #1657896e 7px 14px),
+      #1b6fb3;
+    border: 3px solid #fff;
+  }
+  .card.empty {
+    background: rgba(255,255,255,.05);
+    border: 2px dashed rgba(255,255,255,.25);
+    box-shadow: none;
+  }
+  /* face-up card */
+  .card.face {
+    background: #fdfdf7;
+    border: 1px solid #d9d4c5;
+    color: #1a1a1a;
+    overflow: hidden;
+  }
+  .card.face.red { color: #d11a2a; }
+  .card.face .corner {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: .9;
+    font-weight: 800;
+  }
+  .card.face .corner .r { font-size: calc(var(--w) * .26); }
+  .card.face .corner .s { font-size: calc(var(--w) * .22); }
+  .card.face .corner.tl { top: 5px; left: 6px; }
+  .card.face .corner.br { bottom: 5px; right: 6px; transform: rotate(180deg); }
+  .card.face .pip {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    font-size: calc(var(--w) * .58);
+    font-weight: 800;
+  }
+  .card.flash { animation: flash .35s ease; }
+  @keyframes flash {
+    0% { box-shadow: 0 0 0 0 rgba(255,211,77,0); }
+    40% { box-shadow: 0 0 0 5px rgba(255,211,77,.9); }
+    100% { box-shadow: 0 4px 10px rgba(0,0,0,.4); }
+  }
+
+  .message {
+    min-height: 24px;
+    font-size: clamp(15px, 4.5vw, 19px);
+    font-weight: 700;
+    text-align: center;
+    padding: 0 6px;
+  }
+  .message.good { color: #5bd66f; }
+  .message.bad { color: #ff7b6b; }
+  .message.neutral { color: #f4f0e6; }
+
+  .controls {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding-bottom: 4px;
+  }
+  .row { display: flex; gap: 10px; width: 100%; }
+  button {
+    font-family: inherit;
+    font-weight: 800;
+    border: none;
+    border-radius: 14px;
+    color: #fff;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform .06s, filter .12s, opacity .12s;
+  }
+  button:active { transform: scale(.96); }
+  button:disabled { opacity: .45; filter: grayscale(.4); }
+  .btn-snap {
+    width: 100%;
+    padding: 22px 0;
+    font-size: clamp(30px, 10vw, 44px);
+    letter-spacing: 4px;
+    background: linear-gradient(180deg, #ff5a4d, #d11a2a);
+    box-shadow: 0 6px 0 #8a0f1c, 0 8px 16px rgba(0,0,0,.4);
+  }
+  .btn-snap:active { box-shadow: 0 2px 0 #8a0f1c, 0 4px 10px rgba(0,0,0,.4); transform: translateY(3px) scale(.99); }
+  .btn-flip {
+    flex: 1;
+    padding: 15px 0;
+    font-size: clamp(16px, 5vw, 20px);
+    background: linear-gradient(180deg, #2e9b66, #1f7a4f);
+    box-shadow: 0 4px 0 #145436;
+  }
+  .btn-flip:active { box-shadow: 0 1px 0 #145436; transform: translateY(2px) scale(.99); }
+  .btn-new {
+    flex: 1;
+    padding: 15px 0;
+    font-size: clamp(15px, 4.5vw, 18px);
+    background: rgba(255,255,255,.14);
+    border: 1px solid rgba(255,255,255,.2);
+    box-shadow: 0 4px 0 rgba(0,0,0,.3);
+  }
+  .btn-new:active { box-shadow: 0 1px 0 rgba(0,0,0,.3); transform: translateY(2px) scale(.99); }
+
+  .pile-count {
+    font-size: 13px;
+    font-weight: 700;
+    opacity: .9;
+  }
+
+  /* online: N-seat layout */
+  .counts.mp { flex-wrap: wrap; }
+  .counts.mp .count { min-width: 0; flex: 1 1 22%; }
+  .count.turn { border-color: #ffd34d; background: rgba(255,211,77,.16); box-shadow: 0 0 10px rgba(255,211,77,.3); }
+  .count.out { opacity: .42; filter: grayscale(.6); }
+  .count .lbl .crown { font-size: 11px; }
+
+  .center-pile { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .center-pile .who { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; opacity: .75; }
+  .center-pile .pile-count { opacity: .8; }
+
+  /* online entry button on the controls */
+  .btn-online {
+    flex: 1;
+    padding: 15px 0;
+    font-size: clamp(15px, 4.5vw, 18px);
+    background: linear-gradient(180deg, #3b82f6, #2563eb);
+    box-shadow: 0 4px 0 #1748a8;
+  }
+  .btn-online:active { box-shadow: 0 1px 0 #1748a8; transform: translateY(2px) scale(.99); }
+
+  /* game-over / disconnect overlay (online) */
+  .mp-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(8,22,38,.9);
+    display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; padding: 24px; text-align: center;
+  }
+  .mp-overlay.show { display: flex; }
+  .mp-overlay .emoji { font-size: 3.2rem; }
+  .mp-overlay h2 { font-size: 1.9rem; color: #ffd34d; }
+  .mp-overlay.lose h2 { color: #ff8a8a; }
+  .mp-overlay.win h2 { color: #7dffa3; }
+  .mp-overlay p { font-size: .95rem; opacity: .9; max-width: 320px; line-height: 1.45; }
+  .mp-overlay button {
+    min-width: 220px; padding: 14px 0; font-size: 18px;
+    background: linear-gradient(180deg, #ffd34d, #f0b400); color: #4a3400;
+    box-shadow: 0 4px 0 #a87f00;
+  }
+  .mp-overlay button:active { box-shadow: 0 1px 0 #a87f00; transform: translateY(2px) scale(.99); }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/snap.svg">
+    <link rel="manifest" href="/games/snap.webmanifest">
+    <meta name="theme-color" content="#F59E0B">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Snap">
+    <link rel="apple-touch-icon" href="/games/icons/snap.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="snap",NAME="Snap",COLOR="#F59E0B",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+<div class="wrap">
+  <h1>SNAP</h1>
+
+  <div class="counts">
+    <div class="count" id="cYou">
+      <div class="lbl">You</div>
+      <div class="num" id="youNum">26</div>
+    </div>
+    <div class="count" id="cCpu">
+      <div class="lbl">CPU</div>
+      <div class="num" id="cpuNum">26</div>
+    </div>
+  </div>
+
+  <div class="table">
+    <div class="piles">
+      <div class="slot">
+        <div class="who">You played</div>
+        <div id="youCard" class="card empty"></div>
+        <div class="pile-count" id="youPileLbl">pile: 26</div>
+      </div>
+      <div class="slot">
+        <div class="who">CPU played</div>
+        <div id="cpuCard" class="card empty"></div>
+        <div class="pile-count" id="cpuPileLbl">pile: 26</div>
+      </div>
+    </div>
+    <div class="message neutral" id="message">Tap FLIP to turn a card.</div>
+  </div>
+
+  <div class="controls">
+    <button class="btn-snap" id="snapBtn">SNAP!</button>
+    <div class="row">
+      <button class="btn-flip" id="flipBtn">FLIP</button>
+      <button class="btn-new" id="newBtn">New Game</button>
+    </div>
+    <div class="row">
+      <button class="btn-online" id="onlineBtn" type="button">🌐 Online Game</button>
+    </div>
+  </div>
+</div>
+
+<!-- online game-over / disconnect overlay -->
+<div class="mp-overlay" id="mpOverlay">
+  <div class="emoji" id="mpEmoji">🏆</div>
+  <h2 id="mpTitle"></h2>
+  <p id="mpText"></p>
+  <button id="mpRematchBtn">New game</button>
+</div>
+
+<script src="/games/game-multiplayer.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+  var SUITS = [
+    { ch: "♠", red: false }, // spade
+    { ch: "♥", red: true  }, // heart
+    { ch: "♦", red: true  }, // diamond
+    { ch: "♣", red: false }  // club
+  ];
+
+  // ---- WebAudio ----
+  var actx = null;
+  function audio() {
+    if (actx === null) {
+      try { actx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { actx = false; }
+    }
+    return actx || null;
+  }
+  function beep(freq, dur, type, vol) {
+    var ac = audio();
+    if (!ac) return;
+    if (ac.state === "suspended") { try { ac.resume(); } catch (e) {} }
+    var t = ac.currentTime;
+    var osc = ac.createOscillator();
+    var g = ac.createGain();
+    osc.type = type || "sine";
+    osc.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol == null ? 0.18 : vol, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    osc.connect(g); g.connect(ac.destination);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  }
+  function sndFlip()    { beep(420, 0.08, "triangle", 0.12); }
+  function sndWin()     { beep(660, 0.10, "square", 0.16); setTimeout(function(){ beep(990, 0.16, "square", 0.16); }, 90); }
+  function sndLose()    { beep(300, 0.14, "sawtooth", 0.14); setTimeout(function(){ beep(180, 0.22, "sawtooth", 0.14); }, 110); }
+  function sndPenalty() { beep(160, 0.25, "sawtooth", 0.16); }
+  function sndGameWin() {
+    [523,659,784,1047].forEach(function(f, i){
+      setTimeout(function(){ beep(f, 0.18, "square", 0.16); }, i * 120);
+    });
+  }
+
+  // ---- State ----
+  var youPile = [];   // face-down draw piles (index 0 = top)
+  var cpuPile = [];
+  var center = [];    // captured/flipped cards in the middle, oldest..newest
+  var youTop = null;  // currently face-up card for each player (top of center)
+  var cpuTop = null;
+  var matchActive = false;   // true when youTop & cpuTop ranks match -> snap window open
+  var cpuTimer = null;       // scheduled CPU snap
+  var resolving = false;     // briefly lock input while resolving a round
+  var gameOver = false;
+  var nextFlipIsYou = true;  // whose card the FLIP button turns next
+
+  // When an online match is running, the local (You-vs-CPU) engine is fully
+  // suspended and all input is routed through the online engine instead.
+  var online = false;
+
+  // DOM
+  var youNum = document.getElementById("youNum");
+  var cpuNum = document.getElementById("cpuNum");
+  var youPileLbl = document.getElementById("youPileLbl");
+  var cpuPileLbl = document.getElementById("cpuPileLbl");
+  var youCardEl = document.getElementById("youCard");
+  var cpuCardEl = document.getElementById("cpuCard");
+  var msgEl = document.getElementById("message");
+  var snapBtn = document.getElementById("snapBtn");
+  var flipBtn = document.getElementById("flipBtn");
+  var newBtn = document.getElementById("newBtn");
+  var cYou = document.getElementById("cYou");
+  var cCpu = document.getElementById("cCpu");
+
+  function buildDeck() {
+    var d = [];
+    for (var s = 0; s < SUITS.length; s++) {
+      for (var r = 0; r < RANKS.length; r++) {
+        d.push({ rank: RANKS[r], suit: SUITS[s].ch, red: SUITS[s].red });
+      }
+    }
+    return d;
+  }
+  function shuffle(a) {
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  function pipFor(rank) {
+    if (rank === "A" || rank === "J" || rank === "Q" || rank === "K") return rank;
+    return rank; // show big rank in center for simplicity & clarity
+  }
+
+  function renderCard(el, card) {
+    if (!card) {
+      el.className = "card empty";
+      el.innerHTML = "";
+      return;
+    }
+    el.className = "card face" + (card.red ? " red" : "");
+    el.innerHTML =
+      '<div class="corner tl"><span class="r">' + card.rank + '</span><span class="s">' + card.suit + '</span></div>' +
+      '<div class="pip">' + pipFor(card.rank) + '</div>' +
+      '<div class="corner br"><span class="r">' + card.rank + '</span><span class="s">' + card.suit + '</span></div>';
+  }
+
+  function flash(el) {
+    el.classList.remove("flash");
+    // force reflow to restart animation
+    void el.offsetWidth;
+    el.classList.add("flash");
+  }
+
+  function updateCounts() {
+    var youTotal = youPile.length + (youTop ? 1 : 0);
+    var cpuTotal = cpuPile.length + (cpuTop ? 1 : 0);
+    // center cards (other than the two visible tops) belong to nobody yet;
+    // display draw-pile owned totals plus center as "in play".
+    youNum.textContent = youPile.length;
+    cpuNum.textContent = cpuPile.length;
+    youPileLbl.textContent = "pile: " + youPile.length;
+    cpuPileLbl.textContent = "pile: " + cpuPile.length;
+  }
+
+  function setMsg(text, kind) {
+    msgEl.textContent = text;
+    msgEl.className = "message " + (kind || "neutral");
+  }
+
+  function clearCpuTimer() {
+    if (cpuTimer !== null) { clearTimeout(cpuTimer); cpuTimer = null; }
+  }
+
+  // Move both visible top cards + everything in center into a winner's pile (bottom).
+  function collectCenterTo(pile) {
+    // center holds all previously flipped cards including current tops
+    // (tops are always the last entries pushed). Add to bottom of pile.
+    for (var i = 0; i < center.length; i++) {
+      pile.push(center[i]);
+    }
+    center = [];
+    youTop = null;
+    cpuTop = null;
+    matchActive = false;
+  }
+
+  function checkGameOver() {
+    // A player needs their own draw pile to flip a card. If a player's draw
+    // pile is empty and no match is open (nothing left for them to win), they
+    // can no longer play and the opponent wins. Only resolve when no match is
+    // currently open and we are not mid-collection.
+    if (matchActive || resolving) return false;
+    // Only decide a winner when the board is clear (a round just resolved).
+    // While cards sit face-up in the centre the round is still live.
+    if (youTop || cpuTop || center.length) return false;
+
+    var youOut = youPile.length === 0;
+    var cpuOut = cpuPile.length === 0;
+
+    if (cpuOut && !youOut) { endGame(true); return true; }   // you hold all cards
+    if (youOut && !cpuOut) { endGame(false); return true; }  // CPU holds all cards
+    return false; // both empty with empty centre shouldn't happen with 52 cards
+  }
+
+  function resolveByHoldings() {
+    // Stuck: both draw piles empty, face-up cards don't match. Whoever holds
+    // more cards in total (draw pile + their face-up + an even split of the
+    // neutral centre) takes the game. The two tops belong to their owners.
+    var youHas = youPile.length + (youTop ? 1 : 0);
+    var cpuHas = cpuPile.length + (cpuTop ? 1 : 0);
+    var neutral = center.length - (youTop ? 1 : 0) - (cpuTop ? 1 : 0);
+    // Neutral centre cards split evenly; remainder is a wash and ignored.
+    youHas += Math.floor(neutral / 2);
+    cpuHas += Math.floor(neutral / 2);
+    if (youHas === cpuHas) {
+      gameOver = true;
+      clearCpuTimer();
+      flipBtn.disabled = true;
+      snapBtn.disabled = true;
+      setMsg("Stalemate — it's a draw!", "neutral");
+      return;
+    }
+    endGame(youHas > cpuHas);
+  }
+
+  function endGame(youWin) {
+    gameOver = true;
+    clearCpuTimer();
+    flipBtn.disabled = true;
+    snapBtn.disabled = true;
+    if (youWin) {
+      setMsg("You took every card. YOU WIN!", "good");
+      cYou.classList.add("win");
+      sndGameWin();
+    } else {
+      setMsg("CPU took every card. You lose.", "bad");
+      cCpu.classList.add("win");
+      sndLose();
+    }
+  }
+
+  // Flip one card from the player whose turn it is onto the center.
+  function doFlip() {
+    if (online) { mpFlip(); return; }
+    if (gameOver || resolving) return;
+    if (matchActive) {
+      // there's an open match — flipping is disabled; ignore
+      return;
+    }
+
+    var who = nextFlipIsYou;
+    var pile = who ? youPile : cpuPile;
+    if (pile.length === 0) {
+      // that player can't flip; let the other keep flipping
+      nextFlipIsYou = !nextFlipIsYou;
+      if ((nextFlipIsYou ? youPile : cpuPile).length === 0) {
+        // Neither player can flip a fresh card (both draw piles empty) and the
+        // face-up cards don't match — nobody can snap. Decide by total holdings.
+        resolveByHoldings();
+        return;
+      }
+      doFlip();
+      return;
+    }
+
+    var card = pile.shift();
+    center.push(card);
+    if (who) {
+      youTop = card;
+      renderCard(youCardEl, card);
+      flash(youCardEl);
+    } else {
+      cpuTop = card;
+      renderCard(cpuCardEl, card);
+      flash(cpuCardEl);
+    }
+    sndFlip();
+    updateCounts();
+
+    nextFlipIsYou = !nextFlipIsYou;
+
+    // Check for a match once both have a visible top card.
+    if (youTop && cpuTop && youTop.rank === cpuTop.rank) {
+      openMatch();
+    } else {
+      setMsg(nextFlipIsYou ? "No match — your flip." : "No match — CPU's flip.", "neutral");
+      if (checkGameOver()) return;
+    }
+  }
+
+  function openMatch() {
+    matchActive = true;
+    setMsg("MATCH! Hit SNAP!", "neutral");
+    flipBtn.disabled = true;
+    // Schedule the CPU's snap with a human-like, randomized reaction.
+    // Sometimes the CPU is slow enough that you can beat it.
+    var reaction = 260 + Math.random() * 720; // 260ms .. 980ms
+    // occasionally the CPU "misses" / hesitates longer, giving you a clear shot
+    if (Math.random() < 0.18) reaction += 400 + Math.random() * 500;
+    cpuTimer = setTimeout(function () {
+      if (!matchActive || gameOver || resolving) return;
+      cpuSnaps();
+    }, reaction);
+  }
+
+  function cpuSnaps() {
+    if (!matchActive || gameOver) return;
+    resolving = true;
+    matchActive = false;
+    clearCpuTimer();
+    flash(youCardEl); flash(cpuCardEl);
+    setMsg("CPU snapped first! Cards to CPU.", "bad");
+    sndLose();
+    var n = center.length;
+    collectCenterTo(cpuPile);
+    afterCollect(n, false);
+  }
+
+  function youSnap() {
+    if (online) { mpSnap(); return; }
+    if (gameOver || resolving) return;
+    if (matchActive) {
+      // valid snap — you beat the CPU's timer
+      resolving = true;
+      matchActive = false;
+      clearCpuTimer();
+      flash(youCardEl); flash(cpuCardEl);
+      setMsg("SNAP! You win the pile!", "good");
+      sndWin();
+      var n = center.length;
+      collectCenterTo(youPile);
+      afterCollect(n, true);
+    } else {
+      // false snap — penalty: give one card from your pile to the bottom of CPU's
+      falseSnapPenalty();
+    }
+  }
+
+  function falseSnapPenalty() {
+    if (gameOver || resolving) return;
+    sndPenalty();
+    if (youPile.length > 0) {
+      var card = youPile.pop(); // from bottom of your draw pile
+      cpuPile.push(card);       // to bottom of CPU pile
+      setMsg("Wrong snap! You give a card to CPU.", "bad");
+    } else {
+      setMsg("Wrong snap! (no card to give)", "bad");
+    }
+    updateCounts();
+    flash(snapBtnFlashTarget());
+    checkGameOver();
+  }
+
+  function snapBtnFlashTarget() {
+    return cYou; // visual nudge on the You counter
+  }
+
+  // After someone collects the center pile, clear the board and resume.
+  function afterCollect(n, youWon) {
+    updateCounts();
+    youCardEl.classList.add("flash");
+    cpuCardEl.classList.add("flash");
+    setTimeout(function () {
+      youTop = null; cpuTop = null;
+      renderCard(youCardEl, null);
+      renderCard(cpuCardEl, null);
+      updateCounts();
+      resolving = false;
+      if (checkGameOver()) return;
+      flipBtn.disabled = false;
+      // winner starts the next flip
+      nextFlipIsYou = youWon;
+      setMsg("Tap FLIP to continue.", "neutral");
+    }, 650);
+  }
+
+  function newGame() {
+    // Leaving any online match returns to the classic local You-vs-CPU game.
+    if (online) { online = false; mpHideOverlay(); restoreLocalLayout(); }
+    clearCpuTimer();
+    var deck = shuffle(buildDeck());
+    youPile = deck.slice(0, 26);
+    cpuPile = deck.slice(26, 52);
+    center = [];
+    youTop = null; cpuTop = null;
+    matchActive = false;
+    resolving = false;
+    gameOver = false;
+    nextFlipIsYou = true;
+    cYou.classList.remove("win");
+    cCpu.classList.remove("win");
+    renderCard(youCardEl, null);
+    renderCard(cpuCardEl, null);
+    updateCounts();
+    flipBtn.disabled = false;
+    snapBtn.disabled = false;
+    setMsg("Tap FLIP to turn a card.", "neutral");
+    // warm up audio on first user gesture later
+  }
+
+  // ---- Wire up events (pointerdown for snappy reaction) ----
+  function bind(el, fn) {
+    var handler = function (e) {
+      e.preventDefault();
+      // resume audio context on first interaction
+      var ac = audio();
+      if (ac && ac.state === "suspended") { try { ac.resume(); } catch (x) {} }
+      fn();
+    };
+    el.addEventListener("pointerdown", handler, { passive: false });
+    // fallback for browsers without pointer events
+    el.addEventListener("click", function (e) {
+      if (window.PointerEvent) return; // already handled
+      handler(e);
+    });
+  }
+
+  bind(snapBtn, youSnap);
+  bind(flipBtn, doFlip);
+  bind(newBtn, newGame);
+
+  // ==========================================================================
+  // ONLINE N-PLAYER MODE (2–4 players) — uses GameMP.
+  //
+  // Netcode is fully peer-symmetric: there is no authoritative server. Every
+  // client runs the same deterministic simulation:
+  //   • seat 0 picks an integer seed on match start and broadcasts it; EVERY
+  //     client (seat 0 included) builds the same 52-card deck and shuffles it
+  //     with a seeded PRNG (mulberry32), then deals evenly into N face-down
+  //     piles by seat. Because the RNG + deal order are identical everywhere,
+  //     all clients hold byte-identical piles.
+  //   • A flip is broadcast as {action:"flip", seat}; receivers pop the SAME
+  //     known card from that seat's pile, so the central pile stays in sync.
+  //   • The snap RACE is resolved by seat 0 as tiebreaker: anyone may send
+  //     {action:"snap"} when the top two ranks match; seat 0 accepts only the
+  //     FIRST snap it processes for a given central pile (a monotonic pileId
+  //     guards against stale snaps) and broadcasts {action:"snapwin", winner}.
+  //     Everyone (seat 0 included) applies snapwin identically.
+  // ==========================================================================
+
+  // Seeded PRNG + Fisher–Yates so every client deals the identical deck.
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function seededShuffle(arr, rng){for(var i=arr.length-1;i>0;i--){var j=Math.floor(rng()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+  // ---- online state ----
+  var mpSeat = 0;            // our seat 0..N-1 (seat 0 = host = tiebreaker)
+  var mpCount = 2;           // number of players
+  var mpPiles = [];          // mpPiles[seat] = face-down draw pile (index 0 = top)
+  var mpCenter = [];         // shared central pile, oldest..newest (last = top)
+  var mpAlive = [];          // mpAlive[seat] = still has cards / in the game
+  var mpTurn = 0;            // seat whose turn it is to flip
+  var mpPileId = 0;          // monotonic id of the current central pile run
+  var mpSnapClaimed = false; // seat-0 only: a snap already accepted for this pileId
+  var mpResolving = false;   // brief lock while a snap is being applied
+  var mpOver = false;        // online match finished
+
+  // online DOM (built dynamically over the existing .counts / .table)
+  var countsEl = document.querySelector(".counts");
+  var pilesEl = document.querySelector(".piles");
+  var mpOverlay = document.getElementById("mpOverlay");
+  var mpEmoji = document.getElementById("mpEmoji");
+  var mpTitle = document.getElementById("mpTitle");
+  var mpText = document.getElementById("mpText");
+  var mpRematchBtn = document.getElementById("mpRematchBtn");
+
+  // Snapshot the original local markup so "New Game" can restore it exactly.
+  var localCountsHTML = countsEl.innerHTML;
+  var localPilesHTML = pilesEl.innerHTML;
+
+  function mpName(seat){ return seat === mpSeat ? "You" : "Player " + (seat + 1); }
+  function mpTopRank(){ return mpCenter.length ? mpCenter[mpCenter.length - 1].rank : null; }
+  function mpMatchShowing(){
+    return mpCenter.length >= 2 &&
+      mpCenter[mpCenter.length - 1].rank === mpCenter[mpCenter.length - 2].rank;
+  }
+  function mpAliveSeats(){ var a=[]; for (var s=0;s<mpCount;s++) if (mpAlive[s]) a.push(s); return a; }
+  function mpNextAlive(seat){
+    for (var i=1;i<=mpCount;i++){ var s=(seat+i)%mpCount; if (mpAlive[s]) return s; }
+    return seat;
+  }
+  function mpMyTurn(){ return online && !mpOver && !mpResolving && mpTurn === mpSeat && mpAlive[mpSeat]; }
+
+  // Build the identical deck + deal for everyone from the shared seed.
+  function mpDeal(seed){
+    var rng = mulberry32(seed >>> 0);
+    var deck = seededShuffle(buildDeck(), rng);
+    mpPiles = []; mpAlive = [];
+    for (var s=0;s<mpCount;s++){ mpPiles[s] = []; mpAlive[s] = true; }
+    // Deal round-robin by seat so every client deals identically.
+    for (var i=0;i<deck.length;i++){ mpPiles[i % mpCount].push(deck[i]); }
+    mpCenter = [];
+    mpTurn = 0;
+    mpPileId = 0;
+    mpSnapClaimed = false;
+    mpResolving = false;
+    mpOver = false;
+  }
+
+  // Replace the 2-pile local layout with an N-seat online layout.
+  function buildMpLayout(){
+    countsEl.classList.add("mp");
+    countsEl.innerHTML = "";
+    for (var s=0;s<mpCount;s++){
+      var c = document.createElement("div");
+      c.className = "count"; c.id = "mpCount" + s;
+      c.innerHTML = '<div class="lbl"></div><div class="num"></div>';
+      countsEl.appendChild(c);
+    }
+    pilesEl.innerHTML = "";
+    var slot = document.createElement("div");
+    slot.className = "center-pile";
+    slot.innerHTML =
+      '<div class="who">Central pile</div>' +
+      '<div id="mpCenterCard" class="card empty"></div>' +
+      '<div class="pile-count" id="mpCenterLbl">pile: 0</div>';
+    pilesEl.appendChild(slot);
+  }
+
+  // Restore the original local DOM (used when leaving an online match).
+  function restoreLocalLayout(){
+    countsEl.classList.remove("mp");
+    countsEl.innerHTML = localCountsHTML;
+    pilesEl.innerHTML = localPilesHTML;
+    // re-grab the local element handles that newGame() relies on
+    youNum = document.getElementById("youNum");
+    cpuNum = document.getElementById("cpuNum");
+    youPileLbl = document.getElementById("youPileLbl");
+    cpuPileLbl = document.getElementById("cpuPileLbl");
+    youCardEl = document.getElementById("youCard");
+    cpuCardEl = document.getElementById("cpuCard");
+    cYou = document.getElementById("cYou");
+    cCpu = document.getElementById("cCpu");
+  }
+
+  function mpRender(){
+    for (var s=0;s<mpCount;s++){
+      var c = document.getElementById("mpCount" + s);
+      if (!c) continue;
+      c.className = "count" +
+        (mpTurn === s && mpAlive[s] && !mpOver ? " turn" : "") +
+        (!mpAlive[s] ? " out" : "");
+      c.querySelector(".lbl").innerHTML =
+        (s === mpSeat ? "You" : "P" + (s + 1)) + (s === 0 ? ' <span class="crown">👑</span>' : "");
+      c.querySelector(".num").textContent = mpPiles[s] ? mpPiles[s].length : 0;
+    }
+    var card = document.getElementById("mpCenterCard");
+    var lbl = document.getElementById("mpCenterLbl");
+    if (card) renderCard(card, mpCenter.length ? mpCenter[mpCenter.length - 1] : null);
+    if (lbl) lbl.textContent = "pile: " + mpCenter.length;
+
+    var match = mpMatchShowing();
+    snapBtn.disabled = mpOver || mpResolving || !match;
+    flipBtn.disabled = !mpMyTurn() || match;
+    flipBtn.textContent = "FLIP";
+
+    if (!mpOver){
+      if (match) setMsg("MATCH! Hit SNAP!", "good");
+      else if (mpMyTurn()) setMsg("Your turn — tap FLIP.", "neutral");
+      else setMsg("Waiting for " + mpName(mpTurn) + "…", "neutral");
+    }
+  }
+
+  // A flip request from the FLIP button (local seat's turn only).
+  function mpFlip(){
+    if (!mpMyTurn() || mpMatchShowing()) return;
+    GameMP.send({ action: "flip", seat: mpSeat });
+    mpApplyFlip(mpSeat);
+  }
+
+  // Apply a flip (locally or from a peer): pop that seat's known top card onto
+  // the central pile. Identical on every client because piles are seeded.
+  function mpApplyFlip(seat){
+    if (mpOver || mpResolving) return;
+    if (seat !== mpTurn || !mpAlive[seat]) return;          // stale/illegal flip
+    if (mpMatchShowing()) return;                            // pile must be cleared by a snap first
+    if (!mpPiles[seat] || mpPiles[seat].length === 0) return;
+    var card = mpPiles[seat].shift();
+    mpCenter.push(card);
+    sndFlip();
+    var cardEl = document.getElementById("mpCenterCard");
+    if (cardEl) flash(cardEl);
+    // If this player just ran out, they're out; check for a winner.
+    if (mpPiles[seat].length === 0){
+      mpAlive[seat] = false;
+      if (mpCheckGameOver()) { mpRender(); return; }
+    }
+    // Advance turn to the next player still in the game.
+    mpTurn = mpNextAlive(seat);
+    mpRender();
+  }
+
+  // A snap claim from the SNAP button.
+  function mpSnap(){
+    if (mpOver || mpResolving || !mpMatchShowing()) return;
+    if (mpSeat === 0){
+      // We ARE the tiebreaker — accept our own snap immediately if unclaimed.
+      mpAcceptSnap(0);
+    } else {
+      // Defer to seat 0; it will broadcast the winner.
+      GameMP.send({ action: "snap", seat: mpSeat, pileId: mpPileId });
+    }
+  }
+
+  // Seat-0 only: accept the FIRST snap seen for this central pile, declare the
+  // winner, and broadcast it. Later snaps for the same pileId are ignored.
+  function mpAcceptSnap(winner){
+    if (mpSeat !== 0 || mpSnapClaimed || !mpMatchShowing() || mpOver) return;
+    mpSnapClaimed = true;
+    GameMP.send({ action: "snapwin", seat: 0, winner: winner, pileId: mpPileId });
+    mpApplySnapWin(winner);
+  }
+
+  // Everyone applies the declared snap winner: they take the whole central pile
+  // onto the BOTTOM of their face-down pile. Then a new pile run begins.
+  function mpApplySnapWin(winner){
+    if (mpOver || mpResolving) return;
+    if (!mpMatchShowing()) return;            // guards against a duplicate apply
+    mpResolving = true;
+    var cardEl = document.getElementById("mpCenterCard");
+    if (cardEl) flash(cardEl);
+    if (winner === mpSeat) sndWin(); else sndFlip();
+    setMsg(mpName(winner) + " snapped! Wins the pile.", winner === mpSeat ? "good" : "neutral");
+    // Move the central pile to the winner (only if still alive; eliminated
+    // players can't win — but a player who emptied their pile may still snap
+    // their way back in, which is fine: they receive cards and rejoin).
+    for (var i=0;i<mpCenter.length;i++) mpPiles[winner].push(mpCenter[i]);
+    if (mpPiles[winner].length > 0) mpAlive[winner] = true;
+    mpCenter = [];
+    mpPileId++;
+    mpSnapClaimed = false;
+    // Winner leads the next flip (if still in); else next alive after them.
+    mpTurn = mpAlive[winner] ? winner : mpNextAlive(winner);
+    setTimeout(function(){
+      mpResolving = false;
+      if (!mpCheckGameOver()) mpRender();
+    }, 600);
+    mpRender();
+  }
+
+  // Last player holding cards wins. Returns true if the match is over.
+  function mpCheckGameOver(){
+    if (mpOver) return true;
+    var live = mpAliveSeats();
+    if (live.length <= 1){
+      mpOver = true;
+      mpGameOver(live.length === 1 ? live[0] : -1);
+      return true;
+    }
+    return false;
+  }
+
+  function mpGameOver(winner){
+    flipBtn.disabled = true;
+    snapBtn.disabled = true;
+    var iWon = winner === mpSeat;
+    mpOverlay.className = "mp-overlay show " + (iWon ? "win" : (winner < 0 ? "" : "lose"));
+    mpEmoji.textContent = iWon ? "🏆" : (winner < 0 ? "🤝" : "💀");
+    mpTitle.textContent = iWon ? "You win!" : (winner < 0 ? "Draw" : mpName(winner) + " wins");
+    mpText.textContent = iWon
+      ? "You scooped up every card. Nicely snapped!"
+      : (winner < 0 ? "Nobody has cards left." : mpName(winner) + " collected all the cards.");
+    if (iWon) sndGameWin(); else if (winner >= 0) sndLose();
+    if (window.AdrientGame && iWon) window.AdrientGame.setHighScore(window.AdrientGame.highScore() + 1);
+    // Host-only rematch; others just see the result and can start a new game.
+    mpRematchBtn.textContent = mpSeat === 0 ? "Rematch" : "New game";
+  }
+
+  function mpHideOverlay(){ mpOverlay.className = "mp-overlay"; }
+
+  // Reset to a fresh online match. Seat 0 picks + broadcasts a new seed.
+  function mpStartFromSeed(seed){
+    online = true;
+    mpHideOverlay();
+    mpDeal(seed);
+    flipBtn.disabled = false;
+    snapBtn.disabled = false;
+    mpRender();
+  }
+
+  // ---- GameMP wiring ----
+  GameMP.setup({ gameName: "Snap", minPlayers: 2, maxPlayers: 4 });
+
+  GameMP.onReady(function (seat, count) {
+    audio();
+    mpSeat = seat;
+    mpCount = count;
+    online = true;
+    clearCpuTimer();          // suspend the local engine
+    buildMpLayout();
+    setMsg("Online — seat " + (seat + 1) + " of " + count + ".", "neutral");
+    if (seat === 0){
+      // Host generates the shared seed and tells everyone to deal it.
+      var seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+      GameMP.send({ action: "start", seat: 0, seed: seed });
+      mpStartFromSeed(seed);
+    } else {
+      setMsg("Waiting for the deal…", "neutral");
+    }
+  });
+
+  GameMP.onMove(function (m) {
+    if (!online) return;
+    if (m.action === "start"){
+      mpStartFromSeed(m.seed >>> 0);
+    } else if (m.action === "flip"){
+      mpApplyFlip(m.seat);
+    } else if (m.action === "snap"){
+      // Only seat 0 adjudicates the race; first valid snap for this pile wins.
+      if (mpSeat === 0 && m.pileId === mpPileId) mpAcceptSnap(m.seat);
+    } else if (m.action === "snapwin"){
+      if (m.pileId === mpPileId) mpApplySnapWin(m.winner);
+    }
+  });
+
+  GameMP.onReset(function () {
+    // Host pressed Rematch — host re-seeds; non-hosts wait for the new seed.
+    mpHideOverlay();
+    if (mpSeat === 0){
+      var seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+      GameMP.send({ action: "start", seat: 0, seed: seed });
+      mpStartFromSeed(seed);
+    } else {
+      mpOver = false;
+      setMsg("Waiting for the deal…", "neutral");
+    }
+  });
+
+  GameMP.onPeerLeft(function () {
+    if (!online) return;
+    // No authoritative server: a mid-match disconnect breaks the deterministic
+    // turn/deal sync, so end the match cleanly with an overlay.
+    mpOver = true;
+    flipBtn.disabled = true;
+    snapBtn.disabled = true;
+    mpOverlay.className = "mp-overlay show";
+    mpEmoji.textContent = "🔌";
+    mpTitle.textContent = "Player left";
+    mpText.textContent = "Someone disconnected, so this match can't continue. Start a new online game to play again.";
+    mpRematchBtn.textContent = "New game";
+  });
+
+  bind(document.getElementById("onlineBtn"), function(){ audio(); GameMP.openCreate(); });
+
+  bind(mpRematchBtn, function(){
+    if (mpSeat === 0 && online){
+      // Host rematch: reset everyone, then re-seed via onReset path.
+      mpHideOverlay();
+      GameMP.sendReset();
+      var seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+      GameMP.send({ action: "start", seat: 0, seed: seed });
+      mpStartFromSeed(seed);
+    } else {
+      // Non-host or post-disconnect: leave online and open a fresh online panel.
+      online = false;
+      mpHideOverlay();
+      restoreLocalLayout();
+      newGame();
+      GameMP.openCreate();
+    }
+  });
+
+  // prevent double-tap zoom / scroll
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches && e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+
+  newGame();
+})();
+</script>
+</body>
+</html>

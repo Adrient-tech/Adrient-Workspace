@@ -1,0 +1,105 @@
+# Guacamole webapp — served at guac.adrient.com (root context), authenticating via
+# Zitadel OIDC. Connects to guacd and to its own Postgres. The cloudflared
+# ingress rule (see README) routes guac.adrient.com -> this Service on :8080.
+#
+# Non-secret OIDC endpoints live in this ConfigMap; the OIDC client-id comes from
+# the `guac-zitadel-secret` you create per the README. Postgres password comes
+# from the guac-postgres Secret.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guac-oidc
+  namespace: adrient
+  labels: { app: guacamole, part-of: guacamole }
+data:
+  OPENID_ISSUER: "https://auth.adrient.com"
+  OPENID_AUTHORIZATION_ENDPOINT: "https://auth.adrient.com/oauth/v2/authorize"
+  # JWKS is fetched server-side to verify the id_token signature. Point it at the
+  # in-cluster Zitadel (via the hostAlias on the Deployment below) so it does NOT
+  # round-trip through Cloudflare — Cloudflare bot/rate protection was returning 403
+  # on the repeated fetches during login, breaking the flow. http:// because the
+  # in-cluster zitadel-proxy is plain HTTP; the hostAlias supplies the right Host.
+  OPENID_JWKS_ENDPOINT: "http://auth.adrient.com/oauth/v2/keys"
+  OPENID_REDIRECT_URI: "https://guac.adrient.com/"
+  OPENID_USERNAME_CLAIM_TYPE: "email"
+  OPENID_SCOPE: "openid email profile"
+  # Zitadel issues a 12-hour id_token. Guacamole's OpenID extension defaults
+  # openid-max-token-validity to 300 minutes (5h) and rejects any token whose
+  # exp is further out than that ("exp claim value cannot be more than 300
+  # minutes in the future"), which caused a redirect loop after a successful
+  # Zitadel login. Raise the ceiling to 24h so the 12h token is accepted.
+  OPENID_MAX_TOKEN_VALIDITY: "1440"
+  # Make OIDC the primary auth so users never see Guacamole's built-in login.
+  EXTENSION_PRIORITY: "openid"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: guacamole
+  namespace: adrient
+  labels: { app: guacamole, part-of: guacamole }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: guacamole }
+  template:
+    metadata:
+      labels: { app: guacamole, part-of: guacamole }
+    spec:
+      # Resolve auth.adrient.com to the in-cluster zitadel-proxy so the server-side
+      # JWKS fetch (OPENID_JWKS_ENDPOINT, http) bypasses Cloudflare. The proxy
+      # requires Host: auth.adrient.com, which this alias provides. NOTE: the IP is
+      # the zitadel-proxy Service ClusterIP — update it if that Service is recreated
+      # (`kubectl -n zitadel get svc zitadel-proxy`).
+      hostAliases:
+        - ip: "172.23.178.252"
+          hostnames: ["auth.adrient.com"]
+      # NOTE: the upstream Tomcat image is happiest as root (writable work dirs);
+      # the gateway's real protection is SSO + the tunnel, not the container user.
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: guacamole
+          image: guacamole/guacamole:1.5.5
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - configMapRef: { name: guac-oidc }
+          env:
+            - { name: WEBAPP_CONTEXT, value: ROOT } # serve at / not /guacamole
+            - { name: GUACD_HOSTNAME, value: guacd }
+            - { name: GUACD_PORT, value: "4822" }
+            - { name: POSTGRESQL_HOSTNAME, value: guac-postgres }
+            - { name: POSTGRESQL_PORT, value: "5432" }
+            - { name: POSTGRESQL_DATABASE, value: guacamole }
+            - { name: POSTGRESQL_USER, value: guacamole }
+            - { name: POSTGRESQL_AUTO_CREATE_ACCOUNTS, value: "true" }
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: guac-postgres, key: POSTGRES_PASSWORD }
+            - name: OPENID_CLIENT_ID
+              valueFrom:
+                secretKeyRef: { name: guac-zitadel-secret, key: client-id }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          readinessProbe:
+            httpGet: { path: /, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 30
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: guacamole
+  namespace: adrient
+  labels: { app: guacamole, part-of: guacamole }
+spec:
+  selector: { app: guacamole }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }

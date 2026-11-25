@@ -1,0 +1,327 @@
+syntax = "proto3";
+
+package adrient.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/Adrient-tech/Adrient-Workspace/gen/go/adrient/v1;adrientv1";
+
+// InventoryService manages products (with variants), stock per location,
+// suppliers, reorder lists and the stock history. POS and Invoicing call
+// ListProducts / GetProduct / AdjustStock.
+service InventoryService {
+  // Products
+  rpc ListProducts(ListInvProductsRequest) returns (ListInvProductsResponse) {
+    option (google.api.http) = { get: "/api/v1/inventory/products" };
+  }
+  rpc GetProduct(GetInvProductRequest) returns (InvProduct) {
+    option (google.api.http) = { get: "/api/v1/inventory/products/{id}" };
+  }
+  rpc CreateProduct(SaveInvProductRequest) returns (InvProduct) {
+    option (google.api.http) = { post: "/api/v1/inventory/products" body: "*" };
+  }
+  rpc UpdateProduct(SaveInvProductRequest) returns (InvProduct) {
+    option (google.api.http) = { patch: "/api/v1/inventory/products/{id}" body: "*" };
+  }
+  rpc ArchiveProduct(ArchiveInvProductRequest) returns (InvProduct) {
+    option (google.api.http) = { post: "/api/v1/inventory/products/{id}/archive" body: "*" };
+  }
+  rpc DeleteProduct(GetInvProductRequest) returns (InvEmpty) {
+    option (google.api.http) = { delete: "/api/v1/inventory/products/{id}" };
+  }
+  rpc SetProductSuppliers(SetProductSuppliersRequest) returns (InvProduct) {
+    option (google.api.http) = { put: "/api/v1/inventory/products/{id}/suppliers" body: "*" };
+  }
+  rpc ImportProducts(ImportInvProductsRequest) returns (ImportInvProductsResponse) {
+    option (google.api.http) = { post: "/api/v1/inventory/import" body: "*" };
+  }
+
+  // Stock
+  rpc AdjustStock(AdjustStockRequest) returns (InvProduct) {
+    option (google.api.http) = { post: "/api/v1/inventory/products/{id}/adjust" body: "*" };
+  }
+  rpc TransferStock(TransferStockRequest) returns (InvProduct) {
+    option (google.api.http) = { post: "/api/v1/inventory/products/{id}/transfer" body: "*" };
+  }
+  rpc ListHistory(ListInvHistoryRequest) returns (ListInvHistoryResponse) {
+    option (google.api.http) = { get: "/api/v1/inventory/history" };
+  }
+  rpc ReorderList(InvEmpty) returns (ReorderListResponse) {
+    option (google.api.http) = { get: "/api/v1/inventory/reorder" };
+  }
+  rpc Report(InvEmpty) returns (InvReport) {
+    option (google.api.http) = { get: "/api/v1/inventory/report" };
+  }
+
+  // Locations
+  rpc ListLocations(InvEmpty) returns (ListInvLocationsResponse) {
+    option (google.api.http) = { get: "/api/v1/inventory/locations" };
+  }
+  rpc CreateLocation(SaveInvLocationRequest) returns (InvLocation) {
+    option (google.api.http) = { post: "/api/v1/inventory/locations" body: "*" };
+  }
+  rpc UpdateLocation(SaveInvLocationRequest) returns (InvLocation) {
+    option (google.api.http) = { patch: "/api/v1/inventory/locations/{id}" body: "*" };
+  }
+  rpc DeleteLocation(GetInvProductRequest) returns (InvEmpty) {
+    option (google.api.http) = { delete: "/api/v1/inventory/locations/{id}" };
+  }
+
+  // Suppliers
+  rpc ListSuppliers(InvEmpty) returns (ListInvSuppliersResponse) {
+    option (google.api.http) = { get: "/api/v1/inventory/suppliers" };
+  }
+  rpc CreateSupplier(SaveInvSupplierRequest) returns (InvSupplier) {
+    option (google.api.http) = { post: "/api/v1/inventory/suppliers" body: "*" };
+  }
+  rpc UpdateSupplier(SaveInvSupplierRequest) returns (InvSupplier) {
+    option (google.api.http) = { patch: "/api/v1/inventory/suppliers/{id}" body: "*" };
+  }
+  rpc DeleteSupplier(GetInvProductRequest) returns (InvEmpty) {
+    option (google.api.http) = { delete: "/api/v1/inventory/suppliers/{id}" };
+  }
+}
+
+message InvEmpty {}
+
+message InvLocation {
+  string id = 1;
+  string name = 2;
+  string code = 3;
+  bool is_default = 4;
+  string created_at = 5;
+}
+
+message SaveInvLocationRequest {
+  string id = 1;
+  string name = 2;
+  string code = 3;
+  bool is_default = 4;
+}
+
+message ListInvLocationsResponse {
+  repeated InvLocation locations = 1;
+}
+
+message InvSupplier {
+  string id = 1;
+  string name = 2;
+  // Optional link to a Contacts record (adrient.contacts id).
+  string contact_id = 3;
+  string email = 4;
+  string phone = 5;
+  string notes = 6;
+  int32 product_count = 7;
+  string created_at = 8;
+}
+
+message SaveInvSupplierRequest {
+  string id = 1;
+  string name = 2;
+  string contact_id = 3;
+  string email = 4;
+  string phone = 5;
+  string notes = 6;
+}
+
+message ListInvSuppliersResponse {
+  repeated InvSupplier suppliers = 1;
+}
+
+// One supplier source for a product.
+message InvProductSupplier {
+  string supplier_id = 1;
+  string supplier_name = 2;
+  string supplier_sku = 3;
+  double cost = 4;
+  int32 lead_days = 5;
+  double pack_size = 6;
+  bool preferred = 7;
+}
+
+message InvStockLevel {
+  string location_id = 1;
+  string location_name = 2;
+  double qty = 3;
+  string shelf_code = 4;
+}
+
+message InvProduct {
+  string id = 1;
+  // Non-empty for a variant: the id of the family product.
+  string parent_id = 2;
+  string variant_label = 3;
+  string name = 4;
+  string sku = 5;
+  string barcode = 6;
+  string description = 7;
+  string category = 8;
+  string unit = 9;
+  double price = 10;
+  double cost = 11;
+  double min_stock = 12;
+  // Quantity to order when reordering; 0 = twice min_stock minus stock.
+  double reorder_qty = 13;
+  // Drive file id of the product photo.
+  string photo_file_id = 14;
+  bool archived = 15;
+  // Sum over all locations (own stock only; family totals include variants).
+  double total_stock = 16;
+  repeated InvStockLevel stock = 17;
+  repeated InvProduct variants = 18;
+  repeated InvProductSupplier suppliers = 19;
+  string created_at = 20;
+  string updated_at = 21;
+}
+
+message ListInvProductsRequest {
+  string query = 1;       // matches name, sku, barcode, category
+  string barcode = 2;     // exact barcode or sku match
+  string category = 3;
+  string location_id = 4; // restrict stock to one location
+  bool include_archived = 5;
+  bool archived_only = 6;
+  bool low_stock_only = 7;
+  // Flat list: include variants as separate rows instead of nesting them.
+  bool flat = 8;
+}
+
+message ListInvProductsResponse {
+  repeated InvProduct products = 1;
+}
+
+message GetInvProductRequest {
+  string id = 1;
+}
+
+message SaveInvProductRequest {
+  string id = 1;
+  string parent_id = 2;
+  string variant_label = 3;
+  string name = 4;
+  string sku = 5;
+  string barcode = 6;
+  string description = 7;
+  string category = 8;
+  string unit = 9;
+  double price = 10;
+  double cost = 11;
+  double min_stock = 12;
+  double reorder_qty = 13;
+  string photo_file_id = 14;
+  // Initial stock (create only): put opening_qty at opening_location_id (default location if empty).
+  double opening_qty = 15;
+  string opening_location_id = 16;
+}
+
+message ArchiveInvProductRequest {
+  string id = 1;
+  bool archived = 2;
+}
+
+message SetProductSuppliersRequest {
+  string id = 1;
+  repeated InvProductSupplier suppliers = 2;
+}
+
+message ImportInvProductsRequest {
+  // mode: "update" (default, matches by SKU), "add" (adds qty to stock) or "skip" (existing SKUs untouched).
+  string mode = 1;
+  repeated SaveInvProductRequest rows = 2;
+  // Names of location per row (parallel to rows; empty = default).
+  repeated string location_names = 3;
+}
+
+message ImportInvProductsResponse {
+  int32 created = 1;
+  int32 updated = 2;
+  int32 skipped = 3;
+  repeated string errors = 4;
+}
+
+message AdjustStockRequest {
+  string id = 1;
+  string location_id = 2; // default location if empty
+  // Quantity change (negative to remove). For reason "count" with absolute=true, the counted quantity.
+  double qty = 3;
+  bool absolute = 4;
+  // sale | refund | receive | count | remove | correction
+  string reason = 5;
+  string note = 6;
+  // External reference, e.g. an invoice or POS receipt number.
+  string ref = 7;
+  string shelf_code = 8;
+  // Optional unit cost paid on receive; updates the product cost when > 0.
+  double unit_cost = 9;
+}
+
+message TransferStockRequest {
+  string id = 1;
+  string from_location_id = 2;
+  string to_location_id = 3;
+  double qty = 4;
+  string note = 5;
+}
+
+message InvHistoryEntry {
+  string id = 1;
+  string product_id = 2;
+  string product_name = 3;
+  string sku = 4;
+  string location_id = 5;
+  string location_name = 6;
+  double delta = 7;
+  double qty_after = 8;
+  string reason = 9;
+  string note = 10;
+  string ref = 11;
+  string user_id = 12;
+  string created_at = 13;
+}
+
+message ListInvHistoryRequest {
+  string product_id = 1;
+  string reason = 2;
+  string since = 3; // RFC3339
+  int32 limit = 4;
+}
+
+message ListInvHistoryResponse {
+  repeated InvHistoryEntry entries = 1;
+}
+
+message ReorderLine {
+  InvProduct product = 1;
+  double stock = 2;
+  double suggested_qty = 3;
+  string supplier_id = 4;
+  string supplier_name = 5;
+  string supplier_sku = 6;
+  double unit_cost = 7;
+}
+
+message ReorderListResponse {
+  repeated ReorderLine lines = 1;
+}
+
+message InvReportRow {
+  string label = 1;
+  double units = 2;
+  double cost_value = 3;
+  double retail_value = 4;
+}
+
+message InvReport {
+  int32 product_count = 1;
+  double units = 2;
+  double cost_value = 3;
+  double retail_value = 4;
+  int32 low_stock_count = 5;
+  int32 out_of_stock_count = 6;
+  repeated InvReportRow by_category = 7;
+  repeated InvReportRow by_location = 8;
+  // Last 30 days of movement grouped by reason: units = sum(delta).
+  repeated InvReportRow movement = 9;
+  // Products that sold the most units in the last 30 days.
+  repeated InvReportRow top_movers = 10;
+}

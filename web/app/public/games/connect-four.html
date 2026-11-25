@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Connect Four AI</title>
+    <style>
+        :root {
+            --bg-color: #f0f2f5;
+            --board-color: #2c3e50;
+            --empty-color: #ecf0f1;
+            --player-color: #e74c3c;
+            --ai-color: #f1c40f;
+            --win-glow: #2ecc71;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        #status {
+            font-size: 1.5rem;
+            font-weight: bold;
+            margin-bottom: 20px;
+            height: 2rem;
+            color: #34495e;
+        }
+
+        #game-container {
+            position: relative;
+            padding: 15px;
+            background-color: var(--board-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            grid-gap: 10px;
+        }
+
+        .cell {
+            width: 60px;
+            height: 60px;
+            background-color: var(--empty-color);
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        @media (max-width: 500px) {
+            #board { grid-gap: 7px; }
+            .cell {
+                width: 38px;
+                height: 38px;
+            }
+        }
+
+        .disc {
+            width: 90%;
+            height: 90%;
+            border-radius: 50%;
+            transform: scale(0);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .disc.dropped {
+            transform: scale(1);
+        }
+
+        .disc.red { background-color: var(--player-color); }
+        .disc.yellow { background-color: var(--ai-color); }
+
+        .cell.winner .disc {
+            box-shadow: 0 0 15px 5px var(--win-glow);
+            border: 3px solid white;
+            box-sizing: border-box;
+        }
+
+        #controls {
+            margin-top: 30px;
+        }
+
+        button {
+            padding: 12px 30px;
+            font-size: 1rem;
+            font-weight: bold;
+            color: white;
+            background-color: #3498db;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:active {
+            transform: translateY(2px);
+        }
+
+        .mode-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 50;
+        }
+        .mode-overlay.show { display: flex; }
+        .mode-modal {
+            background: #fff;
+            padding: 2rem;
+            border-radius: 1.5rem;
+            text-align: center;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.3);
+            max-width: 80vw;
+            color: #2c3e50;
+        }
+        .mode-modal h2 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+        .mode-modal p { margin: 0 0 1.25rem; color: #7f8c8d; }
+        .mode-modal .mode-btns { display: flex; flex-direction: column; gap: 0.75rem; }
+    </style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/connect-four.svg">
+    <link rel="manifest" href="/games/connect-four.webmanifest">
+    <meta name="theme-color" content="#E63946">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Connect Four">
+    <link rel="apple-touch-icon" href="/games/icons/connect-four.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="connect-four",NAME="Connect Four",COLOR="#E63946",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+
+    <h1>Connect Four</h1>
+    <div id="status">Your Turn (Red)</div>
+
+    <div id="game-container">
+        <div id="board"></div>
+    </div>
+
+    <div id="controls">
+        <button onclick="resetGame()">New Game</button>
+    </div>
+
+    <div id="modeOverlay" class="mode-overlay">
+        <div class="mode-modal">
+            <h2>Connect Four</h2>
+            <p>Choose a mode</p>
+            <div class="mode-btns">
+                <button id="modeAi">🤖 vs Computer</button>
+                <button id="modeTwo">👥 2 Players</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/games/game-multiplayer.js?v=2"></script>
+    <script>
+        const ROWS = 6;
+        const COLS = 7;
+        const PLAYER = 1; // Red
+        const AI = 2;     // Yellow
+        const EMPTY = 0;
+
+        let board = [];
+        let gameOver = false;
+        let currentPlayer = PLAYER;
+        let mode = 'ai'; // 'ai' = vs computer, '2p' = pass-and-play hot seat, 'online' = networked
+        let mySide = PLAYER; // which side this client controls when online
+
+        const boardElement = document.getElementById('board');
+        const statusElement = document.getElementById('status');
+        const modeOverlay = document.getElementById('modeOverlay');
+
+        // In 2p both sides are human; in ai only the PLAYER (red) side is human;
+        // online only your own side is human (your turn when currentPlayer===mySide).
+        function isHumanTurn() {
+            if (mode === 'online') return currentPlayer === mySide;
+            return mode === '2p' ? true : currentPlayer === PLAYER;
+        }
+        function sideName(side) {
+            if (mode === '2p') return side === PLAYER ? 'Red' : 'Yellow';
+            return side === PLAYER ? 'You' : 'AI';
+        }
+        function sideColor(side) { return side === PLAYER ? '#e74c3c' : '#f1c40f'; }
+
+        function turnText() {
+            if (mode === 'online') return currentPlayer === mySide ? "Your Turn" : "Opponent's Turn";
+            if (mode === '2p') return sideName(currentPlayer) + "'s Turn";
+            return currentPlayer === PLAYER ? "Your Turn (Red)" : "AI is thinking...";
+        }
+
+        function initBoard() {
+            board = Array(ROWS).fill().map(() => Array(COLS).fill(EMPTY));
+            gameOver = false;
+            currentPlayer = PLAYER;
+            statusElement.textContent = turnText();
+            statusElement.style.color = (mode === '2p') ? sideColor(currentPlayer) : "#34495e";
+            renderBoard();
+        }
+
+        function renderBoard() {
+            boardElement.innerHTML = '';
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.dataset.col = c;
+                    cell.onclick = () => handleMove(c);
+                    
+                    const disc = document.createElement('div');
+                    disc.className = 'disc';
+                    if (board[r][c] === PLAYER) disc.classList.add('red', 'dropped');
+                    if (board[r][c] === AI) disc.classList.add('yellow', 'dropped');
+                    
+                    cell.appendChild(disc);
+                    boardElement.appendChild(cell);
+                }
+            }
+        }
+
+        function handleMove(col) {
+            if (gameOver || !isHumanTurn()) return;
+
+            const mover = currentPlayer;
+            if (makeMove(col, mover)) {
+                if (mode === 'online') GameMP.send({ col, player: mover });
+                const winInfo = checkWin(board);
+                if (winInfo) {
+                    endGame(winInfo, mover);
+                } else if (isBoardFull()) {
+                    endGame(null, 'draw');
+                } else if (mode === '2p' || mode === 'online') {
+                    // Pass-and-play / networked: the other side moves next.
+                    currentPlayer = mover === PLAYER ? AI : PLAYER;
+                    statusElement.textContent = turnText();
+                    statusElement.style.color = (mode === 'online') ? "#34495e" : sideColor(currentPlayer);
+                } else {
+                    currentPlayer = AI;
+                    statusElement.textContent = "AI is thinking...";
+                    setTimeout(aiMove, 500);
+                }
+            }
+        }
+
+        function makeMove(col, player) {
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (board[r][col] === EMPTY) {
+                    board[r][col] = player;
+                    renderBoard();
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function aiMove() {
+            if (gameOver) return;
+
+            const bestMove = getBestMove();
+            makeMove(bestMove, AI);
+
+            const winInfo = checkWin(board);
+            if (winInfo) {
+                endGame(winInfo, AI);
+            } else if (isBoardFull()) {
+                endGame(null, 'draw');
+            } else {
+                currentPlayer = PLAYER;
+                statusElement.textContent = "Your Turn (Red)";
+            }
+        }
+
+        function isBoardFull() {
+            return board[0].every(cell => cell !== EMPTY);
+        }
+
+        function endGame(winInfo, winner) {
+            gameOver = true;
+            if (winner === 'draw') {
+                statusElement.textContent = "It's a Draw!";
+                statusElement.style.color = "#7f8c8d";
+            } else {
+                if (mode === 'online') statusElement.textContent = winner === mySide ? "You Win!" : "Opponent Wins!";
+                else if (mode === '2p') statusElement.textContent = sideName(winner) + " Wins!";
+                else statusElement.textContent = winner === PLAYER ? "You Win!" : "AI Wins!";
+                statusElement.style.color = sideColor(winner);
+                if (winInfo) highlightWinners(winInfo);
+            }
+        }
+
+        function highlightWinners(cells) {
+            const allCells = document.querySelectorAll('.cell');
+            cells.forEach(pos => {
+                const index = pos.r * COLS + pos.c;
+                allCells[index].classList.add('winner');
+            });
+        }
+
+        function checkWin(currentBoard) {
+            // Horizontal
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    if (currentBoard[r][c] !== EMPTY &&
+                        currentBoard[r][c] === currentBoard[r][c+1] &&
+                        currentBoard[r][c] === currentBoard[r][c+2] &&
+                        currentBoard[r][c] === currentBoard[r][c+3]) {
+                        return [{r, c}, {r, c:c+1}, {r, c:c+2}, {r, c:c+3}];
+                    }
+                }
+            }
+            // Vertical
+            for (let r = 0; r < ROWS - 3; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (currentBoard[r][c] !== EMPTY &&
+                        currentBoard[r][c] === currentBoard[r+1][c] &&
+                        currentBoard[r][c] === currentBoard[r+2][c] &&
+                        currentBoard[r][c] === currentBoard[r+3][c]) {
+                        return [{r, c}, {r:r+1, c}, {r:r+2, c}, {r:r+3, c}];
+                    }
+                }
+            }
+            // Diagonal /
+            for (let r = 3; r < ROWS; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    if (currentBoard[r][c] !== EMPTY &&
+                        currentBoard[r][c] === currentBoard[r-1][c+1] &&
+                        currentBoard[r][c] === currentBoard[r-2][c+2] &&
+                        currentBoard[r][c] === currentBoard[r-3][c+3]) {
+                        return [{r, c}, {r:r-1, c:c+1}, {r:r-2, c:c+2}, {r:r-3, c:c+3}];
+                    }
+                }
+            }
+            // Diagonal \
+            for (let r = 0; r < ROWS - 3; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    if (currentBoard[r][c] !== EMPTY &&
+                        currentBoard[r][c] === currentBoard[r+1][c+1] &&
+                        currentBoard[r][c] === currentBoard[r+2][c+2] &&
+                        currentBoard[r][c] === currentBoard[r+3][c+3]) {
+                        return [{r, c}, {r:r+1, c:c+1}, {r:r+2, c:c+2}, {r:r+3, c:c+3}];
+                    }
+                }
+            }
+            return null;
+        }
+
+        // --- AI LOGIC (Alpha-Beta Pruning) ---
+
+        function getBestMove() {
+            let bestScore = -Infinity;
+            let move = 3; // Default to center
+            
+            const validMoves = getValidMoves(board);
+            // Prioritize center
+            validMoves.sort((a, b) => Math.abs(3 - a) - Math.abs(3 - b));
+
+            for (let col of validMoves) {
+                const tempBoard = copyBoard(board);
+                simulateMove(tempBoard, col, AI);
+                let score = minimax(tempBoard, 5, -Infinity, Infinity, false);
+                if (score > bestScore) {
+                    bestScore = score;
+                    move = col;
+                }
+            }
+            return move;
+        }
+
+        function minimax(currentBoard, depth, alpha, beta, isMaximizing) {
+            const winCheck = checkWin(currentBoard);
+            if (winCheck) {
+                const winner = currentBoard[winCheck[0].r][winCheck[0].c];
+                return winner === AI ? 1000000 + depth : -1000000 - depth;
+            }
+            if (depth === 0 || isBoardFull()) return evaluateBoard(currentBoard);
+
+            const validMoves = getValidMoves(currentBoard);
+
+            if (isMaximizing) {
+                let maxEval = -Infinity;
+                for (let col of validMoves) {
+                    const tempBoard = copyBoard(currentBoard);
+                    simulateMove(tempBoard, col, AI);
+                    let eval = minimax(tempBoard, depth - 1, alpha, beta, false);
+                    maxEval = Math.max(maxEval, eval);
+                    alpha = Math.max(alpha, eval);
+                    if (beta <= alpha) break;
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (let col of validMoves) {
+                    const tempBoard = copyBoard(currentBoard);
+                    simulateMove(tempBoard, col, PLAYER);
+                    let eval = minimax(tempBoard, depth - 1, alpha, beta, true);
+                    minEval = Math.min(minEval, eval);
+                    beta = Math.min(beta, eval);
+                    if (beta <= alpha) break;
+                }
+                return minEval;
+            }
+        }
+
+        function evaluateBoard(b) {
+            let score = 0;
+            
+            // Center preference
+            for (let r = 0; r < ROWS; r++) {
+                if (b[r][3] === AI) score += 3;
+                if (b[r][3] === PLAYER) score -= 3;
+            }
+
+            // Scoring windows of 4
+            score += scoreWindows(b, AI) - scoreWindows(b, PLAYER) * 1.5;
+            return score;
+        }
+
+        function scoreWindows(b, player) {
+            let totalScore = 0;
+            const opponent = player === AI ? PLAYER : AI;
+
+            // Horizontal
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    totalScore += evaluateWindow(b, r, c, 0, 1, player, opponent);
+                }
+            }
+            // Vertical
+            for (let r = 0; r < ROWS - 3; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    totalScore += evaluateWindow(b, r, c, 1, 0, player, opponent);
+                }
+            }
+            // Diagonal /
+            for (let r = 3; r < ROWS; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    totalScore += evaluateWindow(b, r, c, -1, 1, player, opponent);
+                }
+            }
+            // Diagonal \
+            for (let r = 0; r < ROWS - 3; r++) {
+                for (let c = 0; c < COLS - 3; c++) {
+                    totalScore += evaluateWindow(b, r, c, 1, 1, player, opponent);
+                }
+            }
+            return totalScore;
+        }
+
+        function evaluateWindow(b, r, c, dr, dc, player, opponent) {
+            let count = 0;
+            let empty = 0;
+            for (let i = 0; i < 4; i++) {
+                const currR = r + (i * dr);
+                const currC = c + (i * dc);
+                if (b[currR][currC] === player) count++;
+                else if (b[currR][currC] === EMPTY) empty++;
+                else return 0; // Blocked by opponent
+            }
+            if (count === 4) return 10000;
+            if (count === 3 && empty === 1) return 100;
+            if (count === 2 && empty === 2) return 10;
+            return 0;
+        }
+
+        function getValidMoves(b) {
+            const moves = [];
+            for (let c = 0; c < COLS; c++) {
+                if (b[0][c] === EMPTY) moves.push(c);
+            }
+            return moves;
+        }
+
+        function simulateMove(b, col, player) {
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (b[r][col] === EMPTY) {
+                    b[r][col] = player;
+                    break;
+                }
+            }
+        }
+
+        function copyBoard(b) {
+            return b.map(row => [...row]);
+        }
+
+        // "New Game" returns to the mode picker so you can switch AI / 2-player.
+        // When online, it restarts the shared board and tells the opponent.
+        function resetGame() {
+            if (mode === 'online') { initBoard(); GameMP.sendReset(); return; }
+            showModeSelect();
+        }
+
+        function showModeSelect() { modeOverlay.classList.add('show'); }
+        function startMode(m) {
+            mode = m;
+            modeOverlay.classList.remove('show');
+            initBoard();
+        }
+        document.getElementById('modeAi').addEventListener('click', function(){ startMode('ai'); });
+        document.getElementById('modeTwo').addEventListener('click', function(){ startMode('2p'); });
+
+        // --- Online multiplayer (drop-in via game-multiplayer.js) ---
+        // Apply an opponent's drop. m.player is the side that moved; ignore our own
+        // echo and only advance the shared turn for the opponent's move.
+        function applyRemoteMove(m) {
+            if (mode !== 'online' || gameOver) return;
+            if (m.player === mySide) return;
+            if (makeMove(m.col, m.player)) {
+                const winInfo = checkWin(board);
+                if (winInfo) { endGame(winInfo, m.player); }
+                else if (isBoardFull()) { endGame(null, 'draw'); }
+                else {
+                    currentPlayer = m.player === PLAYER ? AI : PLAYER;
+                    statusElement.textContent = turnText();
+                    statusElement.style.color = "#34495e";
+                }
+            }
+        }
+        GameMP.setup({ gameName: 'Connect Four' });
+        GameMP.onReady(function (role) {
+            // role 0 = host → Red (goes first); role 1 = guest → Yellow.
+            mode = 'online';
+            mySide = role === 0 ? PLAYER : AI;
+            modeOverlay.classList.remove('show');
+            initBoard();
+        });
+        GameMP.onMove(applyRemoteMove);
+        GameMP.onReset(function () { if (mode === 'online') initBoard(); });
+        GameMP.onPeerLeft(function () {
+            if (mode !== 'online') return;
+            gameOver = true;
+            statusElement.textContent = "Opponent left.";
+            statusElement.style.color = "#7f8c8d";
+        });
+
+        // Render an idle board behind the picker, then ask for a mode.
+        initBoard();
+        showModeSelect();
+
+    </script>
+</body>
+</html>

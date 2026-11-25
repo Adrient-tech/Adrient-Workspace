@@ -1,0 +1,138 @@
+import { test, expect } from "@playwright/test";
+import {
+  createSheet,
+  trashSheet,
+  saveSheet,
+  getSheetData,
+  workbookWithCells,
+} from "./helpers";
+
+// Sheets e2e via the JSON API. Saving a workbook runs the server-side formula
+// engine (RecomputeWorkbook) before persisting, so the round-trip deterministically
+// verifies computed results — including the LAMBDA / dynamic-array functions.
+
+// deepValues collects every primitive leaf in a parsed JSON structure, so the
+// assertions don't depend on the exact FortuneSheet cell shape.
+function deepValues(node: unknown, out: Array<string | number> = []) {
+  if (node == null) return out;
+  if (typeof node === "number" || typeof node === "string") {
+    out.push(node);
+  } else if (Array.isArray(node)) {
+    for (const v of node) deepValues(v, out);
+  } else if (typeof node === "object") {
+    for (const v of Object.values(node as Record<string, unknown>))
+      deepValues(v, out);
+  }
+  return out;
+}
+
+test.describe.serial("sheets formula engine", () => {
+  test("computes SUM, LAMBDA, array-expansion and text formulas", async ({
+    page,
+  }) => {
+    const id = await createSheet(page.request, "e2e formulas");
+    try {
+      const wb = workbookWithCells([
+        { r: 0, c: 0, f: "=SUM(111,222)" }, // 333
+        { r: 1, c: 0, f: "=LAMBDA(x,x*x)(9)" }, // 81
+        { r: 2, c: 0, f: "=SUM(SEQUENCE(4))" }, // 10 (array expands)
+        { r: 3, c: 0, f: '=UPPER("adrient")' }, // ADRIENT
+        { r: 4, c: 0, f: '=TEXTSPLIT("a|b|c","|")' }, // a b c (spills)
+      ]);
+      await saveSheet(page.request, id, wb);
+
+      const saved = await getSheetData(page.request, id);
+      const values = deepValues(saved);
+
+      // Numbers may serialize as number or string; check both.
+      const has = (v: string | number) =>
+        values.includes(v) || values.includes(String(v));
+
+      expect(has(333), "SUM(111,222)=333").toBeTruthy();
+      expect(has(81), "LAMBDA(x,x*x)(9)=81").toBeTruthy();
+      expect(has(10), "SUM(SEQUENCE(4))=10").toBeTruthy();
+      expect(has("ADRIENT"), 'UPPER("adrient")').toBeTruthy();
+      expect(has("a") && has("b") && has("c"), "TEXTSPLIT spill").toBeTruthy();
+    } finally {
+      await trashSheet(page.request, id);
+    }
+  });
+
+  test("a computed formula sheet survives reopening in the UI", async ({
+    page,
+  }) => {
+    const id = await createSheet(page.request, "e2e sheet ui");
+    try {
+      await saveSheet(
+        page.request,
+        id,
+        workbookWithCells([{ r: 0, c: 0, f: "=SUM(40,2)" }]),
+      );
+      await page.goto(`/sheets/d/${id}`);
+      // FortuneSheet paints cells on a canvas, so values aren't in the DOM.
+      // A1 is selected on open, so read the formula bar instead.
+      await expect(page.locator(".fortune-sheet-canvas")).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(page.locator(".fortune-fx-input")).toContainText(
+        "=SUM(40,2)",
+      );
+      // The reopened workbook still carries the computed value.
+      const data = await getSheetData(page.request, id);
+      expect(JSON.stringify(data)).toContain("42");
+    } finally {
+      await trashSheet(page.request, id);
+    }
+  });
+
+  test("a value cell saved without display text renders in the grid", async ({
+    page,
+  }) => {
+    // Regression: the API accepted {v: 10} with no display text `m`, and the
+    // FortuneSheet canvas (which paints `m`) showed an empty cell.
+    const id = await createSheet(page.request, "e2e bare value");
+    try {
+      await saveSheet(
+        page.request,
+        id,
+        workbookWithCells([{ r: 1, c: 0, v: 10 }]),
+      );
+      await page.goto(`/sheets/d/${id}`);
+      const cells = page.locator(".fortune-cell-area");
+      await expect(cells).toBeVisible({ timeout: 20_000 });
+      // Select A2 (default rows are ~20px). FortuneSheet's screen-reader
+      // region announces "<range> <display text>" of the focused cell, the
+      // same `m` the canvas paints.
+      await cells.click({ position: { x: 30, y: 30 } });
+      await expect(page.locator(".fortune-name-box")).toHaveText("A2");
+      await expect(page.locator("#sr-selection")).toHaveText("A. 2 10");
+    } finally {
+      await trashSheet(page.request, id);
+    }
+  });
+
+  test("the name box reads A1 when a sheet opens", async ({ page }) => {
+    // Regression: a sheet without a saved selection opened with the name box
+    // reading "A1:NaN" (FortuneSheet seeds {row: [0], column: [0]}).
+    const id = await createSheet(page.request, "e2e name box");
+    try {
+      await saveSheet(
+        page.request,
+        id,
+        workbookWithCells([{ r: 1, c: 0, v: 10 }]),
+      );
+      await page.goto(`/sheets/d/${id}`);
+      await expect(page.locator(".fortune-sheet-canvas")).toBeVisible({
+        timeout: 20_000,
+      });
+      const nameBox = page.locator(".fortune-name-box");
+      await expect(nameBox).toHaveText("A1");
+      // A sheet added from the tab bar starts at A1 too.
+      await page.locator(".fortune-sheettab-button").first().click();
+      await expect(page.locator(".fortune-sheettab-container .luckysheet-sheets-item")).toHaveCount(2);
+      await expect(nameBox).toHaveText("A1");
+    } finally {
+      await trashSheet(page.request, id);
+    }
+  });
+});

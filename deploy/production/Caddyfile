@@ -1,0 +1,36 @@
+# Adrient Workspace front door. Hostnames and the ACME email come from the
+# environment (set by compose from /opt/adrient-workspace/.env).
+# Certificates are issued and renewed automatically (Let's Encrypt).
+{
+	email {$ACME_EMAIL}
+	acme_ca {$CADDY_ACME_CA}
+}
+
+{$WORKSPACE_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	# Large uploads (Drive, Photos, Video) and long-lived WebSockets (Docs, Meet).
+	request_body {
+		max_size 5GB
+	}
+	reverse_proxy adrient:8080 {
+		flush_interval -1
+	}
+}
+
+{$AUTH_HOST} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# Zitadel serves gRPC and HTTP on one port; h2c keeps both working.
+	reverse_proxy h2c://zitadel:8080
+}
+
+# Optional hosts (crm.<domain>) are dropped in here by install.sh.
+import /etc/caddy/sites/*.caddy

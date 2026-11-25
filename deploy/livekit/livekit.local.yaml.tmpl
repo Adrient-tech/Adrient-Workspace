@@ -1,0 +1,23 @@
+# Local dev LiveKit SFU. deploy/local/stack.sh renders this into
+# $ADRIENT_LOCAL_DATA/livekit/livekit.yaml with generated credentials.
+# Never commit the rendered file.
+port: 7880
+# Loopback plus the docker bridge address: browsers never pair ICE with a
+# loopback candidate, so media uses the bridge IP (reachable only from this host).
+bind_addresses: ["127.0.0.1", "@@NODE_IP@@"]
+log_level: info
+rtc:
+  tcp_port: 7881        # ICE/TCP fallback
+  udp_port: 7882        # single UDP port (local only; production uses a range)
+  node_ip: @@NODE_IP@@
+  use_external_ip: false
+turn:
+  enabled: true         # built-in TURN
+  udp_port: 3478
+  relay_range_start: 30000
+  relay_range_end: 30010
+# Redis is required for Egress (recording) to find the SFU. Loopback only.
+redis:
+  address: 127.0.0.1:6390
+keys:
+  @@KEY@@: @@SECRET@@

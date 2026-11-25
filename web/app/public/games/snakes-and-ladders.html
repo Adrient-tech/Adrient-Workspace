@@ -1,0 +1,1101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Snakes &amp; Ladders</title>
+<style>
+  :root {
+    --board-size: min(94vw, 420px);
+    --cell: calc(var(--board-size) / 10);
+    --bg1: #fef6e4;
+    --bg2: #d4f0f7;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: linear-gradient(160deg, var(--bg1), var(--bg2));
+    color: #2b2b40;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100%;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  h1 {
+    margin: 4px 0 6px;
+    font-size: clamp(20px, 6vw, 30px);
+    letter-spacing: .5px;
+    color: #e85d04;
+    text-shadow: 1px 1px 0 #fff;
+    text-align: center;
+  }
+  .status {
+    display: flex;
+    gap: 8px;
+    width: var(--board-size);
+    margin-bottom: 6px;
+  }
+  .pcard {
+    flex: 1;
+    background: #fff;
+    border-radius: 12px;
+    padding: 6px 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.12);
+    text-align: center;
+    border: 3px solid transparent;
+    transition: border-color .2s, transform .2s;
+  }
+  .pcard.active { transform: translateY(-2px); }
+  .pcard.you.active { border-color: #2a9d8f; }
+  .pcard.cpu.active { border-color: #e76f51; }
+  .pcard .name { font-weight: 700; font-size: 13px; display: flex; align-items: center; justify-content: center; gap: 5px; }
+  .pcard .pos { font-size: 22px; font-weight: 800; line-height: 1.1; }
+  .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    display: inline-block;
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,.18);
+  }
+  .dot.you { background: #2a9d8f; }
+  .dot.cpu { background: #e76f51; }
+
+  .boardWrap {
+    position: relative;
+    width: var(--board-size);
+    height: var(--board-size);
+  }
+  #board {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 14px rgba(0,0,0,.18);
+  }
+  .cell {
+    position: relative;
+    font-size: calc(var(--cell) * 0.26);
+    font-weight: 600;
+    color: rgba(0,0,0,.45);
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 2px 0 0 3px;
+  }
+  .cell.light { background: #fff7e6; }
+  .cell.dark  { background: #ffe6c7; }
+  .cell.l-up  { background: #d8f3dc; }
+  .cell.l-up.dark { background: #c7ecc7; }
+  .cell.s-down { background: #ffd6d6; }
+  .cell.s-down.dark { background: #ffc2c2; }
+
+  /* SVG overlay for snakes & ladders */
+  #overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  /* tokens */
+  .token {
+    position: absolute;
+    width: calc(var(--cell) * 0.5);
+    height: calc(var(--cell) * 0.5);
+    border-radius: 50%;
+    z-index: 5;
+    transition: left .18s ease, top .18s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,.4), inset 0 2px 3px rgba(255,255,255,.5);
+    border: 2px solid #fff;
+    transform: translate(-50%, -50%);
+  }
+  .token.you { background: radial-gradient(circle at 35% 30%, #5fd3c4, #1f7a6f); }
+  .token.cpu { background: radial-gradient(circle at 35% 30%, #ff9b7a, #c44a30); }
+  /* Online tokens (seat colors) */
+  .token.p0 { background: radial-gradient(circle at 35% 30%, #5fd3c4, #1f7a6f); }
+  .token.p1 { background: radial-gradient(circle at 35% 30%, #ff9b7a, #c44a30); }
+  .token.p2 { background: radial-gradient(circle at 35% 30%, #ffd56b, #d99a00); }
+  .token.p3 { background: radial-gradient(circle at 35% 30%, #b79bff, #6336c4); }
+  /* Online seat cards (built dynamically) */
+  .pcard.p0.active { border-color: #1f7a6f; }
+  .pcard.p1.active { border-color: #c44a30; }
+  .pcard.p2.active { border-color: #d99a00; }
+  .pcard.p3.active { border-color: #6336c4; }
+  .dot.p0 { background: #2a9d8f; }
+  .dot.p1 { background: #e76f51; }
+  .dot.p2 { background: #f4a200; }
+  .dot.p3 { background: #8257e6; }
+
+  .controls {
+    width: var(--board-size);
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .dicebar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .die {
+    width: 56px; height: 56px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 3px 8px rgba(0,0,0,.2);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    padding: 8px;
+    flex: 0 0 auto;
+  }
+  .die span {
+    width: 9px; height: 9px;
+    background: #333;
+    border-radius: 50%;
+    align-self: center;
+    justify-self: center;
+    visibility: hidden;
+  }
+  .die.rolling { animation: shake .4s linear infinite; }
+  @keyframes shake {
+    0%,100% { transform: rotate(-8deg); }
+    50% { transform: rotate(8deg); }
+  }
+  #msg {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 600;
+    min-height: 20px;
+  }
+  button {
+    font-family: inherit;
+    border: none;
+    border-radius: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  #rollBtn {
+    background: linear-gradient(#ffb703, #fb8500);
+    color: #fff;
+    font-size: 20px;
+    padding: 16px;
+    box-shadow: 0 4px 0 #c96b00;
+    text-shadow: 0 1px 1px rgba(0,0,0,.25);
+  }
+  #rollBtn:active { transform: translateY(3px); box-shadow: 0 1px 0 #c96b00; }
+  #rollBtn:disabled { filter: grayscale(.6) brightness(.95); opacity: .7; box-shadow: 0 4px 0 #999; }
+  #newBtn {
+    background: #fff;
+    color: #e85d04;
+    border: 2px solid #e85d04;
+    padding: 10px;
+    font-size: 15px;
+  }
+  #newBtn:active { background: #ffe9d6; }
+
+  /* win overlay */
+  #winOverlay, #modeOverlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(20,20,30,.55);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+    padding: 16px;
+  }
+  #winOverlay.show, #modeOverlay.show { display: flex; }
+  #modeOverlay { z-index: 60; }
+  .winCard {
+    background: #fff;
+    border-radius: 20px;
+    padding: 26px 22px;
+    text-align: center;
+    max-width: 320px;
+    width: 100%;
+    box-shadow: 0 10px 40px rgba(0,0,0,.4);
+    animation: pop .35s ease;
+  }
+  @keyframes pop { from { transform: scale(.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .winCard h2 { margin: 0 0 6px; font-size: 26px; }
+  .winCard p { margin: 0 0 16px; color: #555; }
+  .winCard button {
+    background: linear-gradient(#ffb703, #fb8500);
+    color: #fff; font-size: 18px; padding: 14px 22px; width: 100%;
+    box-shadow: 0 4px 0 #c96b00;
+  }
+  .winCard button:active { transform: translateY(3px); box-shadow: 0 1px 0 #c96b00; }
+  .confetti { font-size: 40px; margin-bottom: 4px; }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/snakes-and-ladders.svg">
+    <link rel="manifest" href="/games/snakes-and-ladders.webmanifest">
+    <meta name="theme-color" content="#16A34A">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Snakes & Ladders">
+    <link rel="apple-touch-icon" href="/games/icons/snakes-and-ladders.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="snakes-and-ladders",NAME="Snakes & Ladders",COLOR="#16A34A",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+  <h1>🐍 Snakes &amp; Ladders 🪜</h1>
+
+  <div class="status">
+    <div class="pcard you active" id="card-you">
+      <div class="name"><span class="dot you"></span> <span id="name-you">You</span></div>
+      <div class="pos" id="pos-you">0</div>
+    </div>
+    <div class="pcard cpu" id="card-cpu">
+      <div class="name"><span class="dot cpu"></span> <span id="name-cpu">CPU</span></div>
+      <div class="pos" id="pos-cpu">0</div>
+    </div>
+  </div>
+
+  <div class="boardWrap">
+    <div id="board"></div>
+    <svg id="overlay" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+    <div class="token you" id="tok-you"></div>
+    <div class="token cpu" id="tok-cpu"></div>
+  </div>
+
+  <div class="controls">
+    <div class="dicebar">
+      <div class="die" id="die">
+        <span data-p="0"></span><span data-p="1"></span><span data-p="2"></span>
+        <span data-p="3"></span><span data-p="4"></span><span data-p="5"></span>
+        <span data-p="6"></span><span data-p="7"></span><span data-p="8"></span>
+      </div>
+      <div id="msg">Your turn — tap Roll Dice!</div>
+    </div>
+    <button id="rollBtn">🎲 Roll Dice</button>
+    <button id="newBtn">New Game</button>
+  </div>
+
+  <div id="winOverlay">
+    <div class="winCard">
+      <div class="confetti">🎉</div>
+      <h2 id="winTitle">You win!</h2>
+      <p id="winText">First to 100 wins the game.</p>
+      <button id="playAgain">Play Again</button>
+    </div>
+  </div>
+
+  <div id="modeOverlay" class="show">
+    <div class="winCard">
+      <h2>🐍 Snakes &amp; Ladders 🪜</h2>
+      <p>Choose a mode</p>
+      <button id="modeAi" style="margin-bottom:10px;">🤖 vs Computer</button>
+      <button id="modeTwo" style="margin-bottom:10px;">👥 Pass &amp; Play</button>
+    </div>
+  </div>
+
+<script src="/games/game-multiplayer.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---- Board geometry: boustrophedon numbering 1..100 ----
+  // Row 0 is the bottom (squares 1-10 L->R), row 9 is the top.
+  // Returns {col, row} grid coords (0-indexed, row 0 = bottom).
+  function squareToGrid(n) {
+    var idx = n - 1;            // 0..99
+    var row = Math.floor(idx / 10);
+    var inRow = idx % 10;
+    var col = (row % 2 === 0) ? inRow : (9 - inRow);
+    return { col: col, row: row };
+  }
+
+  // Center of a square in SVG/percent coords (0..100). y is flipped so row 0 is bottom.
+  function squareCenterPct(n) {
+    var g = squareToGrid(n);
+    var x = g.col * 10 + 5;
+    var yTop = (9 - g.row) * 10 + 5; // top-origin for DOM/SVG
+    return { x: x, y: yTop };
+  }
+
+  // ---- Fixed snakes & ladders ----
+  // ladders: tail(bottom) -> head(top)  (go up)
+  var LADDERS = { 4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92 };
+  // snakes: head(top) -> tail(bottom) (go down)
+  var SNAKES = { 27: 5, 40: 19, 54: 31, 66: 45, 76: 58, 89: 53, 99: 41 };
+
+  var jumps = {};
+  Object.keys(LADDERS).forEach(function (k) { jumps[+k] = LADDERS[k]; });
+  Object.keys(SNAKES).forEach(function (k) { jumps[+k] = SNAKES[k]; });
+
+  // ---- Build board DOM ----
+  var board = document.getElementById("board");
+  var cells = {}; // n -> element
+  // Render top row first (square 100 area) down to bottom.
+  // Grid fills row by row top->bottom, left->right.
+  for (var domRow = 9; domRow >= 0; domRow--) {
+    for (var domCol = 0; domCol < 10; domCol++) {
+      // figure out which square number sits at grid (col=domCol, row=domRow)
+      var n;
+      var inRow = (domRow % 2 === 0) ? domCol : (9 - domCol);
+      n = domRow * 10 + inRow + 1;
+      var c = document.createElement("div");
+      var isDark = (domRow + domCol) % 2 === 1;
+      c.className = "cell " + (isDark ? "dark" : "light");
+      if (LADDERS[n] !== undefined) c.classList.add("l-up");
+      if (SNAKES[n] !== undefined) c.classList.add("s-down");
+      c.textContent = n;
+      cells[n] = c;
+      board.appendChild(c);
+    }
+  }
+
+  // ---- Draw snakes & ladders on SVG overlay ----
+  var svg = document.getElementById("overlay");
+  var SVGNS = "http://www.w3.org/2000/svg";
+
+  function line(x1, y1, x2, y2, color, w) {
+    var l = document.createElementNS(SVGNS, "line");
+    l.setAttribute("x1", x1); l.setAttribute("y1", y1);
+    l.setAttribute("x2", x2); l.setAttribute("y2", y2);
+    l.setAttribute("stroke", color);
+    l.setAttribute("stroke-width", w);
+    l.setAttribute("stroke-linecap", "round");
+    svg.appendChild(l);
+  }
+  function circle(x, y, r, color) {
+    var c = document.createElementNS(SVGNS, "circle");
+    c.setAttribute("cx", x); c.setAttribute("cy", y); c.setAttribute("r", r);
+    c.setAttribute("fill", color);
+    svg.appendChild(c);
+  }
+
+  // Ladders: two rails + rungs
+  Object.keys(LADDERS).forEach(function (k) {
+    var a = squareCenterPct(+k);          // bottom
+    var b = squareCenterPct(LADDERS[k]);  // top
+    var dx = b.x - a.x, dy = b.y - a.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var nx = -dy / len, ny = dx / len; // perpendicular unit
+    var off = 1.7;
+    line(a.x + nx * off, a.y + ny * off, b.x + nx * off, b.y + ny * off, "#b5651d", 0.9);
+    line(a.x - nx * off, a.y - ny * off, b.x - nx * off, b.y - ny * off, "#b5651d", 0.9);
+    var rungs = Math.max(2, Math.round(len / 7));
+    for (var i = 1; i < rungs; i++) {
+      var t = i / rungs;
+      var px = a.x + dx * t, py = a.y + dy * t;
+      line(px + nx * off, py + ny * off, px - nx * off, py - ny * off, "#cd853f", 0.7);
+    }
+  });
+
+  // Snakes: thick wavy-ish line from head to tail + head circle
+  Object.keys(SNAKES).forEach(function (k) {
+    var head = squareCenterPct(+k);
+    var tail = squareCenterPct(SNAKES[k]);
+    var path = document.createElementNS(SVGNS, "path");
+    var midx = (head.x + tail.x) / 2;
+    var midy = (head.y + tail.y) / 2;
+    var dx = tail.x - head.x, dy = tail.y - head.y;
+    var len = Math.sqrt(dx * dx + dy * dy) || 1;
+    var nx = -dy / len, ny = dx / len;
+    var bow = 6;
+    var c1x = head.x + dx * 0.33 + nx * bow, c1y = head.y + dy * 0.33 + ny * bow;
+    var c2x = head.x + dx * 0.66 - nx * bow, c2y = head.y + dy * 0.66 - ny * bow;
+    path.setAttribute("d", "M" + head.x + "," + head.y +
+      " C" + c1x + "," + c1y + " " + c2x + "," + c2y + " " + tail.x + "," + tail.y);
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", "#3a8a3a");
+    path.setAttribute("stroke-width", "2.4");
+    path.setAttribute("stroke-linecap", "round");
+    path.setAttribute("opacity", "0.85");
+    svg.appendChild(path);
+    // head
+    circle(head.x, head.y, 2.4, "#2e7d32");
+    // eyes
+    circle(head.x - 0.9, head.y - 0.6, 0.5, "#fff");
+    circle(head.x + 0.9, head.y - 0.6, 0.5, "#fff");
+  });
+
+  // ---- Game state ----
+  var mode = "ai"; // 'ai' = vs computer, '2p' = pass-and-play hot seat
+  var state = {
+    you: 0,
+    cpu: 0,
+    turn: "you",
+    busy: false,
+    over: false
+  };
+
+  // In 2p mode both seats are human; in ai mode only "you" is human.
+  function isHumanTurn() { return mode === "2p" ? true : state.turn === "you"; }
+  function sideName(who) {
+    if (mode === "2p") return who === "you" ? "Player 1" : "Player 2";
+    return who === "you" ? "You" : "CPU";
+  }
+
+  var tokYou = document.getElementById("tok-you");
+  var tokCpu = document.getElementById("tok-cpu");
+  var posYou = document.getElementById("pos-you");
+  var posCpu = document.getElementById("pos-cpu");
+  var cardYou = document.getElementById("card-you");
+  var cardCpu = document.getElementById("card-cpu");
+  var nameYou = document.getElementById("name-you");
+  var nameCpu = document.getElementById("name-cpu");
+  var modeOverlay = document.getElementById("modeOverlay");
+  var msg = document.getElementById("msg");
+  var rollBtn = document.getElementById("rollBtn");
+  var newBtn = document.getElementById("newBtn");
+  var dieEl = document.getElementById("die");
+  var winOverlay = document.getElementById("winOverlay");
+  var winTitle = document.getElementById("winTitle");
+  var winText = document.getElementById("winText");
+  var playAgain = document.getElementById("playAgain");
+
+  // place a token at a square (1..100); 0 = off-board start (bottom-left, slightly outside)
+  function placeToken(el, n, isYou) {
+    var pct;
+    if (n <= 0) {
+      // start position near square 1 but offset so both visible
+      pct = { x: isYou ? 2 : 8, y: 98 };
+    } else {
+      pct = squareCenterPct(n);
+    }
+    // offset the two tokens so they don't fully overlap on same square
+    var ox = isYou ? -1.6 : 1.6;
+    var oy = isYou ? -1.2 : 1.2;
+    el.style.left = (pct.x + ox) + "%";
+    el.style.top = (pct.y + oy) + "%";
+  }
+
+  function render() {
+    posYou.textContent = state.you;
+    posCpu.textContent = state.cpu;
+    cardYou.classList.toggle("active", state.turn === "you" && !state.over);
+    cardCpu.classList.toggle("active", state.turn === "cpu" && !state.over);
+  }
+
+  // ---- Dice pip rendering ----
+  var PIPS = {
+    1: [4],
+    2: [0, 8],
+    3: [0, 4, 8],
+    4: [0, 2, 6, 8],
+    5: [0, 2, 4, 6, 8],
+    6: [0, 2, 3, 5, 6, 8]
+  };
+  function showDie(val) {
+    var spans = dieEl.querySelectorAll("span");
+    spans.forEach(function (s) { s.style.visibility = "hidden"; });
+    PIPS[val].forEach(function (p) {
+      var s = dieEl.querySelector('span[data-p="' + p + '"]');
+      if (s) s.style.visibility = "visible";
+    });
+  }
+
+  // ---- Sound (WebAudio) ----
+  var AC = null;
+  function actx() {
+    if (!AC) {
+      try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { AC = null; }
+    }
+    return AC;
+  }
+  function beep(freq, dur, type, vol) {
+    var ac = actx();
+    if (!ac) return;
+    try {
+      var o = ac.createOscillator();
+      var g = ac.createGain();
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      g.gain.value = vol || 0.08;
+      o.connect(g); g.connect(ac.destination);
+      var t = ac.currentTime;
+      o.start(t);
+      g.gain.setValueAtTime(g.gain.value, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.stop(t + dur);
+    } catch (e) {}
+  }
+  function sndStep() { beep(440 + Math.random() * 60, 0.07, "square", 0.05); }
+  function sndLadder() { beep(523, 0.12, "sine", 0.09); setTimeout(function(){ beep(784, 0.16, "sine", 0.09); }, 110); }
+  function sndSnake() { beep(400, 0.18, "sawtooth", 0.08); setTimeout(function(){ beep(220, 0.22, "sawtooth", 0.08); }, 120); }
+  function sndWin() { [523, 659, 784, 1046].forEach(function (f, i) { setTimeout(function(){ beep(f, 0.18, "triangle", 0.1); }, i * 130); }); }
+
+  // ---- Movement (step by step) ----
+  function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  function stepMove(who, from, steps) {
+    // advance one square at a time up to `steps`, returns Promise of final square (no jump yet)
+    return new Promise(function (resolve) {
+      var cur = from;
+      var remaining = steps;
+      function next() {
+        if (remaining <= 0) { resolve(cur); return; }
+        cur += 1;
+        remaining -= 1;
+        placeToken(who === "you" ? tokYou : tokCpu, cur, who === "you");
+        state[who] = cur;
+        render();
+        sndStep();
+        setTimeout(next, 160);
+      }
+      next();
+    });
+  }
+
+  function applyJump(who, square) {
+    return new Promise(function (resolve) {
+      if (jumps[square] !== undefined) {
+        var dest = jumps[square];
+        var isLadder = dest > square;
+        setTimeout(function () {
+          state[who] = dest;
+          placeToken(who === "you" ? tokYou : tokCpu, dest, who === "you");
+          render();
+          if (isLadder) { sndLadder(); msg.textContent = (who === "you" ? "You" : "CPU") + " climbed a ladder! 🪜 → " + dest; }
+          else { sndSnake(); msg.textContent = (who === "you" ? "You" : "CPU") + " hit a snake! 🐍 → " + dest; }
+          setTimeout(function () { resolve(dest); }, 360);
+        }, 280);
+      } else {
+        resolve(square);
+      }
+    });
+  }
+
+  function doTurn(who, value) {
+    return new Promise(function (resolve) {
+      var from = state[who];
+      // Overshoot rule: reach 100+ wins. We allow going past, but cap display at 100 for win.
+      var target = from + value;
+      stepMove(who, from, value).then(function (landed) {
+        // landed === target
+        if (landed >= 100) {
+          // win — snap to 100
+          state[who] = 100;
+          placeToken(who === "you" ? tokYou : tokCpu, 100, who === "you");
+          render();
+          resolve({ won: true });
+          return;
+        }
+        applyJump(who, landed).then(function (finalSq) {
+          resolve({ won: finalSq >= 100 });
+        });
+      });
+    });
+  }
+
+  function rollValue() { return 1 + Math.floor(Math.random() * 6); }
+
+  function endGame(winner) {
+    state.over = true;
+    rollBtn.disabled = true;
+    cardYou.classList.remove("active");
+    cardCpu.classList.remove("active");
+    sndWin();
+    if (mode === "2p") {
+      winTitle.textContent = "🎉 " + sideName(winner) + " Wins!";
+      winText.textContent = sideName(winner) + " reached 100 first!";
+    } else {
+      winTitle.textContent = winner === "you" ? "🎉 You Win!" : "🤖 CPU Wins!";
+      winText.textContent = winner === "you"
+        ? "You reached 100 first. Great job!"
+        : "The computer reached 100 first. Try again!";
+    }
+    winOverlay.classList.add("show");
+  }
+
+  function animateDie(finalVal) {
+    return new Promise(function (resolve) {
+      dieEl.classList.add("rolling");
+      var ticks = 8;
+      var i = 0;
+      var id = setInterval(function () {
+        showDie(rollValue());
+        i++;
+        if (i >= ticks) {
+          clearInterval(id);
+          dieEl.classList.remove("rolling");
+          showDie(finalVal);
+          resolve();
+        }
+      }, 55);
+    });
+  }
+
+  // A human-driven roll for the seat that is currently to move. In ai mode this
+  // is always "you"; in 2p mode it's whichever seat (you/cpu) holds the turn.
+  function humanRoll() {
+    if (state.busy || state.over || !isHumanTurn()) return;
+    var who = state.turn;
+    var other = who === "you" ? "cpu" : "you";
+    state.busy = true;
+    rollBtn.disabled = true;
+    var v = rollValue();
+    msg.textContent = sideName(who) + " rolled a " + v + "!";
+    animateDie(v).then(function () {
+      return doTurn(who, v);
+    }).then(function (res) {
+      if (res.won) { endGame(who); return; }
+      state.turn = other;
+      render();
+      if (jumps[state[who]] === undefined &&
+          !/ladder|snake/i.test(msg.textContent)) {
+        msg.textContent = sideName(who) + " moved to " + state[who] + ". " + sideName(other) + "'s turn…";
+      } else {
+        msg.textContent += " — " + sideName(other) + "'s turn…";
+      }
+      state.busy = false;
+      if (mode === "ai" && other === "cpu") {
+        setTimeout(cpuTurn, 800);
+      } else {
+        // Pass-and-play: next human taps Roll.
+        rollBtn.disabled = false;
+      }
+    });
+  }
+
+  function cpuTurn() {
+    if (state.over || state.turn !== "cpu" || mode !== "ai") return;
+    state.busy = true;
+    var v = rollValue();
+    msg.textContent = "CPU rolled a " + v + "…";
+    animateDie(v).then(function () {
+      return doTurn("cpu", v);
+    }).then(function (res) {
+      if (res.won) { endGame("cpu"); return; }
+      state.turn = "you";
+      render();
+      if (jumps[state.cpu] === undefined &&
+          !/ladder|snake/i.test(msg.textContent)) {
+        msg.textContent = "CPU moved to " + state.cpu + ". Your turn!";
+      } else {
+        msg.textContent += " Your turn!";
+      }
+      state.busy = false;
+      rollBtn.disabled = false;
+    });
+  }
+
+  function newGame() {
+    state.you = 0;
+    state.cpu = 0;
+    state.turn = "you";
+    state.busy = false;
+    state.over = false;
+    winOverlay.classList.remove("show");
+    rollBtn.disabled = false;
+    nameYou.textContent = sideName("you");
+    nameCpu.textContent = sideName("cpu");
+    msg.textContent = sideName("you") + " — tap Roll Dice!";
+    showDie(1);
+    placeToken(tokYou, 0, true);
+    placeToken(tokCpu, 0, false);
+    render();
+  }
+
+  // ---- Mode selection ----
+  function showModeSelect() { modeOverlay.classList.add("show"); }
+  function startMode(m) {
+    mode = m;
+    modeOverlay.classList.remove("show");
+    newGame();
+  }
+
+  // ---- Events ----
+  rollBtn.addEventListener("click", function () {
+    if (AC && AC.state === "suspended") { AC.resume(); }
+    humanRoll();
+  });
+  // "New Game" returns to the mode picker so you can switch AI / pass-and-play.
+  // In online mode it tears down the online board and returns to local play.
+  newBtn.addEventListener("click", function () {
+    if (online.on) { leaveOnline(); }
+    showModeSelect();
+  });
+  // "Play Again" from the win card restarts the same mode (LOCAL ONLY here; the
+  // online flow is handled by its own handler added later).
+  playAgain.addEventListener("click", function () { if (!online.on) newGame(); });
+  document.getElementById("modeAi").addEventListener("click", function () {
+    if (AC && AC.state === "suspended") { AC.resume(); }
+    startMode("ai");
+  });
+  document.getElementById("modeTwo").addEventListener("click", function () {
+    if (AC && AC.state === "suspended") { AC.resume(); }
+    startMode("2p");
+  });
+
+  // prevent double-tap zoom / accidental gestures on buttons
+  [rollBtn, newBtn, playAgain].forEach(function (b) {
+    b.addEventListener("touchend", function (e) { e.preventDefault(); b.click(); }, { passive: false });
+  });
+
+  // ====================================================================
+  // ONLINE MULTIPLAYER (2–4 players) — additive; local modes untouched.
+  //
+  // Deterministic, no hidden info: on your turn you broadcast the die you
+  // rolled {action:"roll", seat, value}; every client applies it identically
+  // using the SAME board map (jumps), the SAME overshoot win rule (reach 100+
+  // wins, snap to 100), and NO roll-6-again (mirrors the local game). Turn
+  // cycles among the seated players; only the current seat may roll. First
+  // token to 100 wins.
+  // ====================================================================
+  var online = {
+    on: false,
+    mySeat: 0,
+    n: 2,
+    pos: [],       // pos[seat] -> square (0..100)
+    turn: 0,       // seat whose turn it is
+    busy: false,
+    over: false,
+    tokens: [],    // seat -> token DOM element
+    cards: [],     // seat -> { card, name, pos } DOM refs
+    cleaned: false
+  };
+
+  var boardWrap = document.querySelector(".boardWrap");
+  var statusBar = document.querySelector(".status");
+
+  function seatLabel(seat) { return seat === online.mySeat ? "You (P" + (seat + 1) + ")" : "Player " + (seat + 1); }
+
+  // Place an online token. Spread tokens around the square center so several on
+  // the same square stay visible.
+  function placeOnlineToken(el, n, seat) {
+    var pct;
+    if (n <= 0) { pct = { x: 5, y: 98 }; }
+    else { pct = squareCenterPct(n); }
+    var ang = (seat / Math.max(1, online.n)) * Math.PI * 2;
+    var r = online.n > 1 ? 2.0 : 0;
+    el.style.left = (pct.x + Math.cos(ang) * r) + "%";
+    el.style.top = (pct.y + Math.sin(ang) * r) + "%";
+  }
+
+  // Build N seat cards + N tokens, hide the two static you/cpu ones.
+  function buildOnlineUI() {
+    // hide static local cards/tokens
+    cardYou.style.display = "none";
+    cardCpu.style.display = "none";
+    tokYou.style.display = "none";
+    tokCpu.style.display = "none";
+    statusBar.innerHTML = "";
+    // clear any stale online tokens from a previous match
+    for (var k = 0; k < online.tokens.length; k++) {
+      if (online.tokens[k] && online.tokens[k].parentNode) online.tokens[k].parentNode.removeChild(online.tokens[k]);
+    }
+    online.cards = [];
+    online.tokens = [];
+    for (var s = 0; s < online.n; s++) {
+      (function (seat) {
+        var card = document.createElement("div");
+        card.className = "pcard p" + seat;
+        var nameRow = document.createElement("div"); nameRow.className = "name";
+        var dot = document.createElement("span"); dot.className = "dot p" + seat;
+        var nm = document.createElement("span"); nm.textContent = seatLabel(seat);
+        nameRow.appendChild(dot); nameRow.appendChild(document.createTextNode(" ")); nameRow.appendChild(nm);
+        var pos = document.createElement("div"); pos.className = "pos"; pos.textContent = "0";
+        card.appendChild(nameRow); card.appendChild(pos);
+        statusBar.appendChild(card);
+        online.cards[seat] = { card: card, name: nm, pos: pos };
+
+        var tok = document.createElement("div");
+        tok.className = "token p" + seat;
+        boardWrap.appendChild(tok);
+        online.tokens[seat] = tok;
+        placeOnlineToken(tok, 0, seat);
+      })(s);
+    }
+  }
+
+  function renderOnline() {
+    for (var s = 0; s < online.n; s++) {
+      var c = online.cards[s];
+      if (!c) continue;
+      c.pos.textContent = online.pos[s];
+      c.card.classList.toggle("active", online.turn === s && !online.over);
+    }
+  }
+
+  // Step-move an online token square by square (same cadence/sound as local).
+  function onlineStepMove(seat, from, steps) {
+    return new Promise(function (resolve) {
+      var cur = from, remaining = steps;
+      function next() {
+        if (remaining <= 0) { resolve(cur); return; }
+        cur += 1; remaining -= 1;
+        online.pos[seat] = cur;
+        placeOnlineToken(online.tokens[seat], cur, seat);
+        renderOnline();
+        sndStep();
+        setTimeout(next, 160);
+      }
+      next();
+    });
+  }
+
+  function onlineApplyJump(seat, square) {
+    return new Promise(function (resolve) {
+      if (jumps[square] !== undefined) {
+        var dest = jumps[square];
+        var isLadder = dest > square;
+        setTimeout(function () {
+          online.pos[seat] = dest;
+          placeOnlineToken(online.tokens[seat], dest, seat);
+          renderOnline();
+          if (isLadder) { sndLadder(); msg.textContent = seatLabel(seat) + " climbed a ladder! 🪜 → " + dest; }
+          else { sndSnake(); msg.textContent = seatLabel(seat) + " hit a snake! 🐍 → " + dest; }
+          setTimeout(function () { resolve(dest); }, 360);
+        }, 280);
+      } else { resolve(square); }
+    });
+  }
+
+  // Apply a roll for `seat` deterministically (same on every client). Mirrors
+  // the local doTurn: overshoot wins (reach 100+ → snap to 100, win), no
+  // 6-again. Returns a promise resolving { won }.
+  function onlineApplyRoll(seat, value) {
+    return new Promise(function (resolve) {
+      var from = online.pos[seat];
+      onlineStepMove(seat, from, value).then(function (landed) {
+        if (landed >= 100) {
+          online.pos[seat] = 100;
+          placeOnlineToken(online.tokens[seat], 100, seat);
+          renderOnline();
+          resolve({ won: true });
+          return;
+        }
+        onlineApplyJump(seat, landed).then(function (finalSq) {
+          resolve({ won: finalSq >= 100 });
+        });
+      });
+    });
+  }
+
+  function onlineNextSeat(seat) { return (seat + 1) % online.n; }
+
+  function onlineUpdateButtons() {
+    if (online.over) { rollBtn.disabled = true; return; }
+    var myTurn = online.turn === online.mySeat && !online.busy;
+    rollBtn.disabled = !myTurn;
+    if (online.busy) return;
+    if (myTurn) msg.textContent = "Your turn — tap Roll Dice!";
+    else msg.textContent = "Waiting for " + seatLabel(online.turn) + "…";
+  }
+
+  // Run a roll (already-known value) for `seat` everywhere, then advance turn.
+  function onlineRunRoll(seat, value) {
+    if (online.over) return;
+    online.busy = true;
+    rollBtn.disabled = true;
+    msg.textContent = seatLabel(seat) + " rolled a " + value + "!";
+    animateDie(value).then(function () {
+      return onlineApplyRoll(seat, value);
+    }).then(function (res) {
+      if (res.won) { onlineEndGame(seat); return; }
+      online.turn = onlineNextSeat(seat);
+      online.busy = false;
+      renderOnline();
+      onlineUpdateButtons();
+    });
+  }
+
+  // Local player presses Roll: pick a value, broadcast it, run it everywhere.
+  function onlineHumanRoll() {
+    if (!online.on || online.over || online.busy) return;
+    if (online.turn !== online.mySeat) return;
+    var v = rollValue();
+    GameMP.send({ action: "roll", seat: online.mySeat, value: v });
+    onlineRunRoll(online.mySeat, v);
+  }
+
+  function onlineEndGame(winnerSeat) {
+    online.over = true;
+    rollBtn.disabled = true;
+    for (var s = 0; s < online.n; s++) if (online.cards[s]) online.cards[s].card.classList.remove("active");
+    sndWin();
+    var iWon = winnerSeat === online.mySeat;
+    winTitle.textContent = iWon ? "🎉 You Win!" : "🏁 " + seatLabel(winnerSeat) + " Wins!";
+    winText.textContent = iWon
+      ? "You reached 100 first. Great job!"
+      : seatLabel(winnerSeat) + " reached 100 first.";
+    if (window.AdrientGame && iWon) window.AdrientGame.setHighScore(window.AdrientGame.highScore() + 1);
+    // Host-only rematch.
+    playAgain.textContent = "Play Again";
+    playAgain.style.display = online.mySeat === 0 ? "" : "none";
+    winOverlay.classList.add("show");
+  }
+
+  function onlineFreshMatch() {
+    online.pos = [];
+    for (var s = 0; s < online.n; s++) online.pos[s] = 0;
+    online.turn = 0;
+    online.busy = false;
+    online.over = false;
+    for (var t = 0; t < online.n; t++) {
+      if (online.tokens[t]) placeOnlineToken(online.tokens[t], 0, t);
+    }
+    winOverlay.classList.remove("show");
+    renderOnline();
+    onlineUpdateButtons();
+  }
+
+  // Called once the waiting room starts the match.
+  function startOnline(seat, count) {
+    online.on = true;
+    online.mySeat = seat;
+    online.n = Math.max(2, Math.min(4, count));
+    // Make sure the local game is no longer driving the board.
+    state.over = true;
+    state.busy = true;
+    mode = "online";
+    modeOverlay.classList.remove("show");
+    buildOnlineUI();
+    onlineFreshMatch();
+  }
+
+  // End an online match cleanly if a peer drops.
+  function onlinePeerLeft() {
+    if (!online.on) return;
+    online.over = true;
+    online.busy = true;
+    rollBtn.disabled = true;
+    for (var s = 0; s < online.n; s++) if (online.cards[s]) online.cards[s].card.classList.remove("active");
+    winTitle.textContent = "🔌 Player left";
+    winText.textContent = "Someone disconnected, so this match can't continue. Start a new online game to play again.";
+    playAgain.textContent = "New Game";
+    playAgain.style.display = "";
+    winOverlay.classList.add("show");
+  }
+
+  // Tear down the online board and restore the static local you/cpu UI so the
+  // local modes work again after leaving an online game.
+  function leaveOnline() {
+    online.on = false;
+    online.over = true;
+    // remove dynamic seat cards + tokens
+    for (var s = 0; s < online.tokens.length; s++) {
+      if (online.tokens[s] && online.tokens[s].parentNode) online.tokens[s].parentNode.removeChild(online.tokens[s]);
+    }
+    online.tokens = [];
+    if (online.cards.length) statusBar.innerHTML = "";
+    online.cards = [];
+    // restore static cards/tokens (re-add the originals)
+    statusBar.appendChild(cardYou);
+    statusBar.appendChild(cardCpu);
+    cardYou.style.display = "";
+    cardCpu.style.display = "";
+    tokYou.style.display = "";
+    tokCpu.style.display = "";
+    winOverlay.classList.remove("show");
+    playAgain.style.display = "";
+  }
+
+  // ---- GameMP wiring ----
+  if (window.GameMP) {
+    GameMP.setup({ gameName: "Snakes & Ladders", minPlayers: 2, maxPlayers: 4 });
+    GameMP.onReady(function (seat, count) {
+      if (AC && AC.state === "suspended") { AC.resume(); }
+      startOnline(seat, count);
+    });
+    GameMP.onMove(function (m) {
+      if (!online.on || !m || m.action !== "roll") return;
+      // Only honor a roll from the seat whose turn it is (ignore stale/dupes).
+      if (online.over || online.busy) return;
+      if (m.seat !== online.turn || m.seat === online.mySeat) return;
+      onlineRunRoll(m.seat, m.value);
+    });
+    GameMP.onReset(function () {
+      // Host pressed Play Again — everyone resets to a fresh match.
+      if (!online.on) return;
+      onlineFreshMatch();
+    });
+    GameMP.onPeerLeft(onlinePeerLeft);
+  }
+
+  // The win-card "Play Again": in online mode the HOST broadcasts a reset and
+  // everyone restarts; a non-host shouldn't see it. Peer-left → reopen panel.
+  playAgain.addEventListener("click", function () {
+    if (!online.on) return; // local handler (registered earlier) handles offline
+    if (winTitle.textContent.indexOf("Player left") !== -1) {
+      winOverlay.classList.remove("show");
+      GameMP.openCreate();
+      return;
+    }
+    if (online.mySeat === 0) {
+      GameMP.sendReset();
+      onlineFreshMatch();
+    }
+  });
+
+  // Online roll routes through the dedicated handler; local roll is untouched.
+  rollBtn.addEventListener("click", function () {
+    if (online.on) {
+      if (AC && AC.state === "suspended") { AC.resume(); }
+      onlineHumanRoll();
+    }
+  });
+
+  // init — render an idle board behind the mode picker, then ask for a mode.
+  newGame();
+  showModeSelect();
+})();
+</script>
+</body>
+</html>

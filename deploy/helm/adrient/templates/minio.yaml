@@ -1,0 +1,116 @@
+{{- if .Values.minio.enabled }}
+# LEGACY bundled MinIO (chart <= 0.1.x). Chart 0.2.0 serves object storage from
+# rustfs (templates/rustfs.yaml); adrient no longer talks to MinIO. This is kept
+# ONLY so an upgraded install can keep its old MinIO running while the
+# migrate-from-minio Job copies the data across (minio.enabled=true).
+#
+# Upstream no longer publishes pullable MinIO images, so the pod can only run on
+# a node that still has the image cached. To avoid an upgrade-triggered restart
+# (and a reschedule onto a node without the image) the pod template below is
+# kept byte-identical to chart 0.1.8, including its frozen chart label.
+#
+# Set minio.enabled=false to remove the StatefulSet/Service/Secret. Its data PVC
+# (data-<release>-minio-0) is a volumeClaimTemplate PVC, which neither Helm nor
+# the StatefulSet controller deletes: remove it by hand once you've verified the
+# migration (see README "Upgrading from 0.1.x").
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    {{- include "adrient.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: {{ .Values.minio.accessKey | quote }}
+  MINIO_ROOT_PASSWORD: {{ .Values.minio.secretKey | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    {{- include "adrient.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: minio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: s3
+      port: {{ .Values.minio.apiPort }}
+      targetPort: 9000
+    - name: console
+      port: {{ .Values.minio.consolePort }}
+      targetPort: 9001
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-minio
+  labels:
+    {{- include "adrient.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+spec:
+  serviceName: {{ .Release.Name }}-minio
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: minio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        # Frozen to the 0.1.8 pod template (see header) — do not templatize.
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/managed-by: {{ .Release.Service }}
+        helm.sh/chart: adrient-0.1.8
+        app.kubernetes.io/component: minio
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: minio
+          image: "{{ .Values.minio.image.repository }}:{{ .Values.minio.image.tag }}"
+          imagePullPolicy: {{ .Values.minio.image.pullPolicy }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          envFrom:
+            - secretRef:
+                name: {{ .Release.Name }}-minio
+          ports:
+            - { name: s3, containerPort: 9000 }
+            - { name: console, containerPort: 9001 }
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: 9000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.storageClass }}
+        storageClassName: {{ .Values.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.minio.persistence.size }}
+{{- end }}
+{{- if and (not .Values.minio.enabled) (not .Values.minio.allowRemoval) .Release.IsUpgrade }}
+{{- if lookup "apps/v1" "StatefulSet" .Release.Namespace (include "adrient.minioName" .) }}
+{{- fail (printf "chart 0.2.0 replaced MinIO with rustfs, and StatefulSet %s is still running. Keep it during migration with minio.enabled=true (+ migrateFromMinio.enabled=true), or, once your data is safely in rustfs, set minio.allowRemoval=true. See the chart README: Upgrading from 0.1.x." (include "adrient.minioName" .)) }}
+{{- end }}
+{{- end }}

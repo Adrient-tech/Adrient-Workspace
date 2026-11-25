@@ -1,0 +1,1111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Battleship</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    background: #0a1530;
+    color: #e8f0ff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+  }
+  #app {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 6px 6px max(6px, env(safe-area-inset-bottom)) 6px;
+    gap: 6px;
+  }
+  h1 {
+    font-size: 20px;
+    letter-spacing: 2px;
+    font-weight: 700;
+    color: #5fd0ff;
+    text-shadow: 0 0 8px rgba(95,208,255,0.5);
+  }
+  #status {
+    font-size: 13px;
+    min-height: 18px;
+    text-align: center;
+    padding: 2px 8px;
+    color: #ffd76a;
+    font-weight: 600;
+  }
+  .controls {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  button {
+    background: #16264f;
+    color: #cfe2ff;
+    border: 1px solid #2e4a8a;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  button:active { background: #21376e; }
+  button:disabled { opacity: 0.4; }
+  button.primary { background: #1f6feb; border-color: #3b82f6; color: #fff; }
+  .board-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .board-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8fb0e8;
+    font-weight: 700;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(10, var(--cell));
+    grid-template-rows: repeat(10, var(--cell));
+    gap: 1px;
+    background: #1a2c55;
+    padding: 1px;
+    border-radius: 4px;
+    border: 1px solid #2e4a8a;
+  }
+  .cell {
+    width: var(--cell);
+    height: var(--cell);
+    background: #0e1f44;
+    border-radius: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .cell.ship { background: #4a5a7a; }
+  .cell.preview-ok { background: #2f9e54; }
+  .cell.preview-bad { background: #b03a3a; }
+  .cell.miss::after {
+    content: "";
+    width: 28%;
+    height: 28%;
+    border-radius: 50%;
+    background: #6f8ac0;
+  }
+  .cell.hit { background: #8a1f1f; }
+  .cell.hit::after {
+    content: "";
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle at 35% 35%, #ff9a3a, #c41212 70%);
+    border-radius: 50%;
+    box-shadow: 0 0 5px rgba(255,90,30,0.8);
+  }
+  .cell.sunk { background: #3a0d0d; }
+  .cell.sunk::after { background: #5a1010; box-shadow: none; }
+  .enemy .cell:not(.miss):not(.hit):not(.sunk):active { background: #1c3568; }
+  .hidden { display: none !important; }
+  .legend { font-size: 10px; color: #7a93c8; text-align: center; }
+  /* Mode menu */
+  #menuControls { flex-direction: column; gap: 12px; margin-top: 24px; }
+  #menuControls button { font-size: 16px; padding: 14px 28px; min-width: 220px; }
+  /* Privacy handoff overlay — fully covers both boards so the player taking
+     the device cannot see the opponent's fleet. */
+  .overlay {
+    position: fixed; inset: 0; z-index: 2147483640;
+    background: #0a1530;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .overlay-card {
+    text-align: center; display: flex; flex-direction: column;
+    gap: 18px; align-items: center;
+  }
+  #handoffTitle { font-size: 24px; font-weight: 700; color: #5fd0ff; text-shadow: 0 0 8px rgba(95,208,255,0.5); }
+  #handoffSub { font-size: 14px; color: #cfe2ff; max-width: 280px; line-height: 1.4; }
+  /* Slide-to-reveal: a deliberate gesture so the board is never exposed by an
+     accidental tap during a handoff. Drag the handle all the way across. */
+  .reveal-track {
+    position: relative;
+    width: min(320px, 78vw);
+    height: 60px;
+    border-radius: 30px;
+    background: #16264f;
+    border: 1px solid #2e4a8a;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .reveal-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 56px;
+    background: #1f6feb;
+    border-radius: 30px;
+  }
+  .reveal-text {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 600 14px system-ui, sans-serif;
+    color: #9fc0ff;
+    letter-spacing: 1px;
+    pointer-events: none;
+    padding-left: 40px;
+  }
+  .reveal-handle {
+    position: absolute; left: 4px; top: 4px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: #1f6feb; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    touch-action: none;
+  }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/battleship.svg">
+    <link rel="manifest" href="/games/battleship.webmanifest">
+    <meta name="theme-color" content="#1E40AF">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Battleship">
+    <link rel="apple-touch-icon" href="/games/icons/battleship.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="battleship",NAME="Battleship",COLOR="#1E40AF",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+<div id="app">
+  <h1>BATTLESHIP</h1>
+  <div id="status">Choose a mode</div>
+
+  <div class="controls" id="menuControls">
+    <button id="aiBtn" class="primary">🤖 vs Computer</button>
+    <button id="twoBtn" class="primary">👥 2 Players (pass &amp; play)</button>
+  </div>
+
+  <div class="controls hidden" id="placeControls">
+    <button id="rotateBtn">Rotate: ↔</button>
+    <button id="autoBtn">Auto Place</button>
+    <button id="startBtn" class="primary" disabled>Start Battle</button>
+  </div>
+  <div class="controls hidden" id="battleControls">
+    <button id="newGameBtn" class="primary">New Game</button>
+  </div>
+
+  <div class="board-wrap hidden" id="enemyWrap">
+    <div class="board-label" id="enemyLabel">Enemy Waters</div>
+    <div class="grid enemy" id="enemyGrid"></div>
+  </div>
+
+  <div class="board-wrap hidden" id="playerWrap">
+    <div class="board-label" id="myLabel">Your Fleet</div>
+    <div class="grid player" id="playerGrid"></div>
+  </div>
+  <div class="legend hidden" id="legend"></div>
+</div>
+
+<!-- Privacy handoff overlay (2-player pass & play) -->
+<div id="handoff" class="overlay hidden">
+  <div class="overlay-card">
+    <div id="handoffTitle">Pass the device</div>
+    <div id="handoffSub"></div>
+    <div id="revealTrack" class="reveal-track">
+      <div id="revealFill" class="reveal-fill"></div>
+      <div id="revealText" class="reveal-text">slide to reveal</div>
+      <div id="revealHandle" class="reveal-handle">›</div>
+    </div>
+  </div>
+</div>
+
+<script src="/games/game-multiplayer.js?v=2"></script>
+<script>
+(function(){
+  "use strict";
+
+  var SIZE = 10;
+  var FLEET = [
+    { name: "Carrier",    len: 5 },
+    { name: "Battleship", len: 4 },
+    { name: "Cruiser",    len: 3 },
+    { name: "Submarine",  len: 3 },
+    { name: "Destroyer",  len: 2 }
+  ];
+
+  // ---------- Audio ----------
+  var actx = null;
+  function beep(freq, dur, type, vol){
+    try {
+      if(!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+      if(actx.state === "suspended") actx.resume();
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      g.gain.value = vol == null ? 0.12 : vol;
+      o.connect(g); g.connect(actx.destination);
+      var t = actx.currentTime;
+      o.start(t);
+      g.gain.setValueAtTime(g.gain.value, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.stop(t + dur);
+    } catch(e){}
+  }
+  function sndMiss(){ beep(220, 0.18, "sine", 0.1); }
+  function sndHit(){ beep(140, 0.25, "square", 0.14); setTimeout(function(){beep(90,0.2,"sawtooth",0.12);}, 60); }
+  function sndSink(){ beep(110,0.15,"square",0.14); setTimeout(function(){beep(80,0.3,"sawtooth",0.16);},120); setTimeout(function(){beep(55,0.4,"sawtooth",0.14);},280); }
+  function sndWin(){ [523,659,784,1047].forEach(function(f,i){ setTimeout(function(){beep(f,0.25,"triangle",0.14);}, i*150); }); }
+  function sndLose(){ [392,330,262,196].forEach(function(f,i){ setTimeout(function(){beep(f,0.3,"sawtooth",0.13);}, i*180); }); }
+  function sndPlace(){ beep(440, 0.08, "triangle", 0.1); }
+
+  // ---------- State ----------
+  // board: { grid:[[{ship,shot}]], ships:[{name,len,cells,hits}] }
+  // mode 'ai': boards[0] = human, boards[1] = computer.
+  // mode '2p': boards[0] = Player 1, boards[1] = Player 2 (pass & play).
+  var mode = null;            // 'ai' | '2p' | 'online'
+  var boards = [null, null];
+  var phase = "menu";         // 'menu' | 'place' | 'handoff' | 'battle' | 'wait' | 'over'
+  // ---- Online multiplayer state (mode === 'online') ----
+  // mySeat = my role (0 = host fires first, 1 = guest). boards[mySeat] is MY real
+  // fleet; boards[1-mySeat] is the enemy-VIEW board (shots only, no real ships).
+  var mySeat = 0;
+  var oppReady = false, myReady = false;
+  var placingPlayer = 0;      // whose fleet is being placed
+  var placeIndex = 0;
+  var horizontal = true;
+  var active = 0;             // whose turn it is during battle (0 or 1)
+  var currentTurn = "player"; // AI mode input lock ('player' | 'cpu')
+  var gameOver = false;
+  var cpuTargets = [];        // AI: queued candidate cells (target mode)
+  var cpuHits = [];           // AI: confirmed hits on the ship being hunted
+
+  var enemyGridEl  = document.getElementById("enemyGrid");
+  var playerGridEl = document.getElementById("playerGrid");
+  var enemyWrapEl  = document.getElementById("enemyWrap");
+  var playerWrapEl = document.getElementById("playerWrap");
+  var legendEl     = document.getElementById("legend");
+  var statusEl     = document.getElementById("status");
+  var myLabelEl    = document.getElementById("myLabel");
+  var enemyLabelEl = document.getElementById("enemyLabel");
+  var startBtn     = document.getElementById("startBtn");
+
+  function pname(i){ return "Player " + (i + 1); }
+
+  function newBoard(){
+    var b = { grid: [], ships: [] };
+    for(var r=0;r<SIZE;r++){
+      var row = [];
+      for(var c=0;c<SIZE;c++) row.push({ ship:null, shot:false });
+      b.grid.push(row);
+    }
+    return b;
+  }
+
+  function inBounds(r,c){ return r>=0 && r<SIZE && c>=0 && c<SIZE; }
+
+  // Check placement validity (no overlap). Returns array of cells or null.
+  function placementCells(board, r, c, len, horiz){
+    var cells = [];
+    for(var i=0;i<len;i++){
+      var rr = horiz ? r : r+i;
+      var cc = horiz ? c+i : c;
+      if(!inBounds(rr,cc)) return null;
+      if(board.grid[rr][cc].ship) return null;
+      cells.push({ r:rr, c:cc });
+    }
+    return cells;
+  }
+
+  function placeShip(board, spec, r, c, horiz){
+    var cells = placementCells(board, r, c, spec.len, horiz);
+    if(!cells) return null;
+    var ship = { name: spec.name, len: spec.len, cells: cells, hits: 0 };
+    for(var i=0;i<cells.length;i++){
+      board.grid[cells[i].r][cells[i].c].ship = ship;
+    }
+    board.ships.push(ship);
+    return ship;
+  }
+
+  function randomPlaceAll(board){
+    board.ships = [];
+    for(var r=0;r<SIZE;r++) for(var c=0;c<SIZE;c++) board.grid[r][c].ship = null;
+    for(var f=0; f<FLEET.length; f++){
+      var spec = FLEET[f], placed = false, tries = 0;
+      while(!placed && tries < 1000){
+        tries++;
+        var horiz = Math.random() < 0.5;
+        var rr = Math.floor(Math.random()*SIZE);
+        var cc = Math.floor(Math.random()*SIZE);
+        if(placeShip(board, spec, rr, cc, horiz)) placed = true;
+      }
+    }
+  }
+
+  // ---------- Rendering ----------
+  function computeCellSize(){
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var byWidth = Math.floor((Math.min(vw, 480) - 16) / 10) - 1;
+    var avail = vh - 200;
+    var byHeight = Math.floor((avail / 2) / 10) - 1;
+    var cell = Math.min(byWidth, byHeight);
+    cell = Math.max(14, Math.min(cell, 34));
+    document.documentElement.style.setProperty("--cell", cell + "px");
+  }
+
+  function buildGrid(el){
+    el.innerHTML = "";
+    for(var r=0;r<SIZE;r++){
+      for(var c=0;c<SIZE;c++){
+        var d = document.createElement("div");
+        d.className = "cell";
+        d.dataset.r = r;
+        d.dataset.c = c;
+        el.appendChild(d);
+      }
+    }
+  }
+
+  function cellEl(el, r, c){ return el.children[r*SIZE + c]; }
+
+  // Render a board the owner sees: ships + shot markers.
+  function renderOwn(el, board){
+    for(var r=0;r<SIZE;r++){
+      for(var c=0;c<SIZE;c++){
+        var cell = board.grid[r][c];
+        var dom = cellEl(el, r, c);
+        dom.className = "cell";
+        if(cell.ship) dom.classList.add("ship");
+        if(cell.shot){
+          if(cell.ship){
+            dom.classList.add(cell.ship.hits >= cell.ship.len ? "sunk" : "hit");
+          } else {
+            dom.classList.add("miss");
+          }
+        }
+      }
+    }
+  }
+
+  // Render an enemy board: only shot results, never unhit ships.
+  function renderEnemy(el, board){
+    for(var r=0;r<SIZE;r++){
+      for(var c=0;c<SIZE;c++){
+        var cell = board.grid[r][c];
+        var dom = cellEl(el, r, c);
+        dom.className = "cell";
+        if(cell.shot){
+          if(cell.ship){
+            dom.classList.add(cell.ship.hits >= cell.ship.len ? "sunk" : "hit");
+          } else {
+            dom.classList.add("miss");
+          }
+        }
+      }
+    }
+  }
+
+  function clearPreview(){
+    for(var i=0;i<playerGridEl.children.length;i++){
+      playerGridEl.children[i].classList.remove("preview-ok","preview-bad");
+    }
+  }
+
+  function showPreview(r, c){
+    clearPreview();
+    if(phase !== "place" || placeIndex >= FLEET.length) return;
+    var spec = FLEET[placeIndex];
+    var board = boards[placingPlayer];
+    var cells = placementCells(board, r, c, spec.len, horizontal);
+    if(cells){
+      for(var i=0;i<cells.length;i++){
+        cellEl(playerGridEl, cells[i].r, cells[i].c).classList.add("preview-ok");
+      }
+    } else {
+      for(var j=0;j<spec.len;j++){
+        var rr = horizontal ? r : r+j;
+        var cc = horizontal ? c+j : c;
+        if(inBounds(rr,cc)){
+          var el = cellEl(playerGridEl, rr, cc);
+          if(!el.classList.contains("ship")) el.classList.add("preview-bad");
+        }
+      }
+    }
+  }
+
+  // ---------- UI helpers ----------
+  function showControls(which){
+    ["menuControls","placeControls","battleControls"].forEach(function(id){
+      document.getElementById(id).classList.toggle("hidden", id !== which);
+    });
+  }
+  function showBoards(enemy, player){
+    enemyWrapEl.classList.toggle("hidden", !enemy);
+    playerWrapEl.classList.toggle("hidden", !player);
+    legendEl.classList.toggle("hidden", !player);
+  }
+  function setOverlay(show){
+    document.getElementById("handoff").classList.toggle("hidden", !show);
+  }
+
+  // Full-screen privacy gate between players (2-player mode only).
+  // Revealing requires a deliberate slide-all-the-way gesture, so the board
+  // is never exposed by an accidental tap when handing over the device.
+  function showHandoff(toName, subText, cb){
+    phase = "handoff";
+    document.getElementById("handoffTitle").textContent = "Pass to " + toName;
+    document.getElementById("handoffSub").textContent = subText;
+    setOverlay(true);
+    initSlider(function(){ setOverlay(false); cb(); });
+  }
+
+  function initSlider(onReveal){
+    var track  = document.getElementById("revealTrack");
+    var handle = document.getElementById("revealHandle");
+    var fill   = document.getElementById("revealFill");
+    var text   = document.getElementById("revealText");
+    var dragging = false, done = false, grabDX = 0, x = 0, maxX = 0, pid = null;
+
+    function layout(){ maxX = Math.max(0, track.clientWidth - handle.offsetWidth - 8); }
+    function paint(px){
+      x = Math.max(0, Math.min(maxX, px));
+      handle.style.left = (4 + x) + "px";
+      fill.style.width  = (handle.offsetWidth + 4 + x) + "px";
+      text.style.opacity = maxX ? String(Math.max(0, 1 - x / maxX)) : "1";
+    }
+    function animate(on){
+      handle.style.transition = on ? "left .2s" : "";
+      fill.style.transition   = on ? "width .2s" : "";
+    }
+    function releaseCapture(){
+      if(pid != null && track.releasePointerCapture){
+        try { track.releasePointerCapture(pid); } catch(_){}
+      }
+      pid = null;
+    }
+    function reset(){
+      animate(true); paint(0);
+      setTimeout(function(){ animate(false); }, 210);
+    }
+    function complete(){
+      done = true;
+      animate(true); paint(maxX);
+      setTimeout(onReveal, 190);
+    }
+    function ptX(e){ return e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0); }
+
+    // Bind the drag handlers to the track itself and capture the pointer on
+    // press. Pointer capture guarantees every pointermove/up is delivered to
+    // the track even if the finger strays off it — window listeners without
+    // capture could miss events on touch (the pointer gets retargeted or
+    // cancelled mid-drag), which left the handle stuck. See showHandoff.
+    function down(e){
+      if(done) return;
+      layout();
+      dragging = true;
+      animate(false);
+      grabDX = ptX(e) - x;
+      pid = (e.pointerId != null) ? e.pointerId : null;
+      if(pid != null && track.setPointerCapture){
+        try { track.setPointerCapture(pid); } catch(_){}
+      }
+      e.preventDefault();
+    }
+    function move(e){
+      if(!dragging || done) return;
+      e.preventDefault();
+      paint(ptX(e) - grabDX);
+    }
+    function up(){
+      if(!dragging || done) return;
+      dragging = false;
+      releaseCapture();
+      if(x >= maxX - 4) complete(); else reset();
+    }
+
+    // Reset any prior state and (re)wire fresh handlers for this handoff.
+    done = false; dragging = false; pid = null;
+    layout(); animate(false); paint(0); text.style.opacity = "1";
+    track.onpointerdown   = down;
+    track.onpointermove   = move;
+    track.onpointerup     = up;
+    track.onpointercancel = up;
+  }
+
+  // ---------- Menu ----------
+  function showMenu(){
+    mode = null;
+    phase = "menu";
+    gameOver = false;
+    setOverlay(false);
+    showControls("menuControls");
+    showBoards(false, false);
+    statusEl.textContent = "Choose a mode";
+  }
+
+  function selectMode(m){
+    mode = m;
+    boards[0] = newBoard();
+    boards[1] = newBoard();
+    gameOver = false;
+    computeCellSize();
+    buildGrid(playerGridEl);
+    buildGrid(enemyGridEl);
+    startPlacement(0);
+  }
+
+  // ---------- Placement phase ----------
+  function startPlacement(p){
+    phase = "place";
+    placingPlayer = p;
+    placeIndex = 0;
+    horizontal = true;
+    document.getElementById("rotateBtn").textContent = "Rotate: ↔";
+    // Only the placing player's own board is visible (opponent can't peek).
+    showControls("placeControls");
+    showBoards(false, true);
+    renderOwn(playerGridEl, boards[p]);
+    clearPreview();
+    // Final button label: AI = Start Battle; 2P P1 = Done →; 2P P2 = Start Battle.
+    startBtn.textContent = (mode === "ai" || p === 1) ? "Start Battle" : "Done →";
+    updatePlaceLabel();
+  }
+
+  function updatePlaceLabel(){
+    var who = (mode === "2p") ? (pname(placingPlayer) + " Fleet") : "Your Fleet";
+    if(placeIndex < FLEET.length){
+      var spec = FLEET[placeIndex];
+      myLabelEl.textContent = who + " — placing " + spec.name + " (" + spec.len + ")";
+      statusEl.textContent = (mode === "2p" ? pname(placingPlayer) + ": tap" : "Tap your grid") +
+                             " to place the " + spec.name;
+      startBtn.disabled = true;
+    } else {
+      myLabelEl.textContent = who + " — ready!";
+      statusEl.textContent = "Fleet ready. Press " + startBtn.textContent + ".";
+      startBtn.disabled = false;
+    }
+  }
+
+  function handlePlaceTap(r, c){
+    if(placeIndex >= FLEET.length) return;
+    var spec = FLEET[placeIndex];
+    var ship = placeShip(boards[placingPlayer], spec, r, c, horizontal);
+    if(ship){
+      sndPlace();
+      placeIndex++;
+      renderOwn(playerGridEl, boards[placingPlayer]);
+      clearPreview();
+      updatePlaceLabel();
+    } else {
+      statusEl.textContent = "Can't place there — overlaps or off-grid.";
+    }
+  }
+
+  function donePlacing(){
+    if(placeIndex < FLEET.length) return;
+    if(mode === "online"){
+      myReady = true;
+      GameMP.send({ k:"ready", seat: mySeat });
+      if(oppReady){
+        startBattleOnline();
+      } else {
+        phase = "wait"; // lock input until the opponent has placed too
+        statusEl.textContent = "Waiting for opponent to place their fleet…";
+      }
+      return;
+    }
+    if(mode === "ai"){
+      randomPlaceAll(boards[1]);
+      startBattle(0);
+    } else if(placingPlayer === 0){
+      // Hand off so Player 2 can place their fleet privately.
+      showHandoff(pname(1), pname(1) + ": place your fleet. " + pname(0) + ", look away!", function(){
+        startPlacement(1);
+      });
+    } else {
+      // Both fleets placed — hand off to Player 1 to take the first shot.
+      showHandoff(pname(0), "Both fleets ready! " + pname(0) + " fires first.", function(){
+        startBattle(0);
+      });
+    }
+  }
+
+  // ---------- Battle phase ----------
+  function shipSunkCheck(ship){ return ship.hits >= ship.len; }
+  function allSunk(board){
+    for(var i=0;i<board.ships.length;i++){
+      if(board.ships[i].hits < board.ships[i].len) return false;
+    }
+    return true;
+  }
+
+  function enemyBoardOf(turn){ return boards[ (mode === "2p") ? (1 - turn) : 1 ]; }
+  function ownBoardOf(turn){ return boards[ (mode === "2p") ? turn : 0 ]; }
+
+  function updateBattleLabels(){
+    if(mode === "2p"){
+      enemyLabelEl.textContent = pname(1 - active) + "'s Waters";
+      myLabelEl.textContent = pname(active) + " — Your Fleet";
+    } else {
+      enemyLabelEl.textContent = "Enemy Waters";
+      myLabelEl.textContent = "Your Fleet";
+    }
+  }
+
+  function renderBattle(){
+    renderEnemy(enemyGridEl, enemyBoardOf(active));
+    renderOwn(playerGridEl, ownBoardOf(active));
+    updateBattleLabels();
+  }
+
+  function startBattle(first){
+    phase = "battle";
+    active = first;
+    currentTurn = "player";
+    gameOver = false;
+    cpuTargets = [];
+    cpuHits = [];
+    showControls("battleControls");
+    showBoards(true, true);
+    renderBattle();
+    statusEl.textContent = (mode === "2p")
+      ? pname(active) + ": fire at " + pname(1 - active) + "!"
+      : "Your turn — fire at Enemy Waters!";
+    if(actx && actx.state === "suspended") actx.resume();
+  }
+
+  // A shot taken by the human (AI mode) or the active player (2P mode).
+  function playerFire(r, c){
+    if(gameOver || phase !== "battle") return;
+    if(mode === "ai" && currentTurn !== "player") return;
+    var enemy = enemyBoardOf(active);
+    var cell = enemy.grid[r][c];
+    if(cell.shot) return;
+    cell.shot = true;
+    renderEnemy(enemyGridEl, enemy);
+    if(cell.ship){
+      cell.ship.hits++;
+      if(shipSunkCheck(cell.ship)){
+        sndSink();
+        statusEl.textContent = "Sank the " +
+          (mode === "2p" ? pname(1 - active) + "'s " : "enemy ") + cell.ship.name + "!";
+      } else {
+        sndHit();
+        statusEl.textContent = "Hit!";
+      }
+    } else {
+      sndMiss();
+      statusEl.textContent = "Miss.";
+    }
+    if(allSunk(enemy)){
+      if(mode === "2p") endGame(pname(active) + " wins! 🎉", true);
+      else endGame("🎉 VICTORY! You sank the enemy fleet!", true);
+      return;
+    }
+    // One shot per turn — hand the turn to the opponent.
+    if(mode === "ai"){
+      currentTurn = "cpu";
+      setTimeout(cpuTurn, 650);
+    } else {
+      // Lock input immediately so a fast double-tap can't fire twice in the
+      // brief window before the privacy overlay appears.
+      phase = "wait";
+      // Let the shooter see the result, then privacy-gate the next player.
+      setTimeout(function(){
+        if(gameOver) return;
+        active = 1 - active;
+        showHandoff(pname(active), pname(active) + ": your turn to fire!", function(){
+          phase = "battle";
+          renderBattle();
+          statusEl.textContent = pname(active) + ": fire at " + pname(1 - active) + "!";
+        });
+      }, 850);
+    }
+  }
+
+  // ---------- CPU AI (AI mode only) ----------
+  function neighbors(r,c){
+    return [{r:r-1,c:c},{r:r+1,c:c},{r:r,c:c-1},{r:r,c:c+1}];
+  }
+  function cpuChoose(player){
+    while(cpuTargets.length){
+      var t = cpuTargets.shift();
+      if(inBounds(t.r,t.c) && !player.grid[t.r][t.c].shot) return t;
+    }
+    var candidates = [], any = [];
+    for(var r=0;r<SIZE;r++){
+      for(var c=0;c<SIZE;c++){
+        if(!player.grid[r][c].shot){
+          any.push({r:r,c:c});
+          if((r+c) % 2 === 0) candidates.push({r:r,c:c});
+        }
+      }
+    }
+    var pool = candidates.length ? candidates : any;
+    if(!pool.length) return null;
+    return pool[Math.floor(Math.random()*pool.length)];
+  }
+  function addNeighborTargets(player, h){
+    var ns = neighbors(h.r, h.c);
+    for(var i=0;i<ns.length;i++){
+      var n = ns[i];
+      if(inBounds(n.r,n.c) && !player.grid[n.r][n.c].shot) cpuTargets.push(n);
+    }
+  }
+  function enqueueTargets(player){
+    cpuTargets = [];
+    if(cpuHits.length >= 2){
+      var sameRow = cpuHits.every(function(h){ return h.r === cpuHits[0].r; });
+      var sameCol = cpuHits.every(function(h){ return h.c === cpuHits[0].c; });
+      if(sameRow){
+        var rrow = cpuHits[0].r;
+        var cols = cpuHits.map(function(h){ return h.c; });
+        var minc = Math.min.apply(null, cols), maxc = Math.max.apply(null, cols);
+        if(inBounds(rrow, minc-1) && !player.grid[rrow][minc-1].shot) cpuTargets.push({r:rrow, c:minc-1});
+        if(inBounds(rrow, maxc+1) && !player.grid[rrow][maxc+1].shot) cpuTargets.push({r:rrow, c:maxc+1});
+      } else if(sameCol){
+        var ccol = cpuHits[0].c;
+        var rows = cpuHits.map(function(h){ return h.r; });
+        var minr = Math.min.apply(null, rows), maxr = Math.max.apply(null, rows);
+        if(inBounds(minr-1, ccol) && !player.grid[minr-1][ccol].shot) cpuTargets.push({r:minr-1, c:ccol});
+        if(inBounds(maxr+1, ccol) && !player.grid[maxr+1][ccol].shot) cpuTargets.push({r:maxr+1, c:ccol});
+      } else {
+        addNeighborTargets(player, cpuHits[cpuHits.length-1]);
+      }
+    } else if(cpuHits.length === 1){
+      addNeighborTargets(player, cpuHits[0]);
+    }
+  }
+
+  function cpuTurn(){
+    if(gameOver) return;
+    var player = boards[0];
+    var t = cpuChoose(player);
+    if(!t) return;
+    var cell = player.grid[t.r][t.c];
+    cell.shot = true;
+    if(cell.ship){
+      cell.ship.hits++;
+      cpuHits.push({r:t.r, c:t.c});
+      renderOwn(playerGridEl, player);
+      if(shipSunkCheck(cell.ship)){
+        sndSink();
+        statusEl.textContent = "Enemy sank your " + cell.ship.name + "!";
+        cpuHits = cpuHits.filter(function(h){ return player.grid[h.r][h.c].ship !== cell.ship; });
+        if(cpuHits.length) enqueueTargets(player); else cpuTargets = [];
+      } else {
+        sndHit();
+        statusEl.textContent = "Enemy hit your fleet!";
+        enqueueTargets(player);
+      }
+      if(allSunk(player)){
+        endGame("💥 DEFEAT! Your fleet was destroyed.", false);
+        return;
+      }
+    } else {
+      sndMiss();
+      renderOwn(playerGridEl, player);
+      statusEl.textContent = "Enemy missed.";
+    }
+    // One shot per turn — back to the human.
+    currentTurn = "player";
+  }
+
+  // ---------- Game over ----------
+  function endGame(message, won){
+    gameOver = true;
+    phase = "over";
+    setOverlay(false);
+    showControls("battleControls");
+    statusEl.textContent = message;
+    if(won) sndWin(); else sndLose();
+  }
+
+  // ---------- Online multiplayer (mode === 'online') ----------
+  // Hidden-information protocol: each client holds only its OWN fleet truthfully.
+  // boards[mySeat] = my real fleet; boards[1-mySeat] = enemy-VIEW (shots only).
+  // A shot is FIRED by the shooter, ADJUDICATED by the defender (who owns the
+  // real board), and the result is reported back. `active` (the seat allowed to
+  // fire) converges to the DEFENDER's seat after every resolved shot — i.e. the
+  // turn always passes to whoever was just fired upon.
+
+  function startOnline(role){
+    mySeat = role;
+    mode = "online";
+    myReady = false;
+    oppReady = false;
+    gameOver = false;
+    boards[mySeat]   = newBoard();   // my real fleet (placed below)
+    boards[1-mySeat] = newBoard();   // enemy-view board: shots only, no ships
+    setOverlay(false);               // no privacy handoff in online mode
+    computeCellSize();
+    buildGrid(playerGridEl);
+    buildGrid(enemyGridEl);
+    // Place MY fleet on MY board. startPlacement edits boards[placingPlayer],
+    // so point placingPlayer at my seat and render my own fleet.
+    startPlacement(mySeat);
+  }
+
+  // The New Game button in online mode: re-place my fleet and tell the opponent
+  // to restart too.
+  function restartOnline(){
+    startOnline(mySeat);
+    GameMP.sendReset();
+  }
+
+  function startBattleOnline(){
+    phase = "battle";
+    active = 0;            // seat 0 fires first; both clients agree
+    gameOver = false;
+    showControls("battleControls");
+    showBoards(true, true);
+    renderBattleOnline();
+    statusEl.textContent = (active === mySeat) ? "Your turn — fire!" : "Opponent's turn…";
+    if(actx && actx.state === "suspended") actx.resume();
+  }
+
+  function renderBattleOnline(){
+    renderEnemy(enemyGridEl, boards[1-mySeat]);
+    renderOwn(playerGridEl, boards[mySeat]);
+    enemyLabelEl.textContent = "Enemy Waters";
+    myLabelEl.textContent = "Your Fleet";
+  }
+
+  // I click the enemy grid to fire. Allowed only on my turn during battle.
+  function onlineFire(r, c){
+    if(phase !== "battle" || active !== mySeat || gameOver) return;
+    var cell = boards[1-mySeat].grid[r][c];
+    if(cell.shot) return;            // already fired here
+    GameMP.send({ k:"fire", r:r, c:c, seat: mySeat });
+    // Lock input and wait for the defender's adjudication. Do NOT mark anything
+    // locally — the {k:'result'} reply tells us hit/miss/sunk.
+    phase = "wait";
+    statusEl.textContent = "Waiting for result…";
+  }
+
+  // I am the DEFENDER: the opponent fired at MY board. Adjudicate on my real
+  // fleet and report back. Idempotent if the same shot arrives twice.
+  function onlineDefend(r, c){
+    var b = boards[mySeat];
+    var cell = b.grid[r][c];
+    var hit, sunk = false, shipName = null, sunkCells = null;
+    if(!cell.shot){
+      cell.shot = true;
+      hit = !!cell.ship;
+      if(hit){
+        cell.ship.hits++;
+        sunk = shipSunkCheck(cell.ship);
+        shipName = cell.ship.name;
+        if(sunk) sunkCells = cell.ship.cells.map(function(pt){ return { r:pt.r, c:pt.c }; });
+        if(sunk) sndSink(); else sndHit();
+      } else {
+        sndMiss();
+      }
+      renderOwn(playerGridEl, b); // see the incoming shot land on my fleet
+    } else {
+      // Re-derive the result for an idempotent reply (no double-apply).
+      hit = !!cell.ship;
+      if(hit){
+        sunk = shipSunkCheck(cell.ship);
+        shipName = cell.ship.name;
+        if(sunk) sunkCells = cell.ship.cells.map(function(pt){ return { r:pt.r, c:pt.c }; });
+      }
+    }
+    var defeated = allSunk(b);
+    GameMP.send({ k:"result", r:r, c:c, hit:hit, sunk:sunk, shipName:shipName,
+                  sunkCells:sunkCells, defeated:defeated, seat: mySeat });
+    // Turn passes to ME (the defender) — the shooter's client converges to the
+    // same `active` on its {k:'result'} branch.
+    active = mySeat;
+    if(defeated){
+      endGame("💥 DEFEAT! Your fleet was destroyed.", false);
+    } else {
+      phase = "battle";
+      statusEl.textContent = "Your turn — fire!";
+      renderBattleOnline();
+    }
+  }
+
+  // I am the SHOOTER: the defender adjudicated my shot. Paint the enemy-view
+  // board so the EXISTING renderEnemy (keyed off cell.shot + ship.hits>=ship.len)
+  // shows miss / hit / sunk correctly.
+  function onlineResult(m){
+    var ev = boards[1-mySeat];
+    if(!m.hit){
+      ev.grid[m.r][m.c].shot = true;
+      ev.grid[m.r][m.c].ship = null;
+      sndMiss();
+    } else if(!m.sunk){
+      ev.grid[m.r][m.c].shot = true;
+      // hits(1) < len(99) ⇒ renderEnemy draws 'hit'
+      ev.grid[m.r][m.c].ship = { len:99, hits:1 };
+      sndHit();
+    } else {
+      // Mark every cell of the sunk ship with a SHARED object where
+      // hits(1) >= len(1) ⇒ renderEnemy draws 'sunk'.
+      var sunkShip = { len:1, hits:1 };
+      var cells = m.sunkCells || [];
+      for(var i=0;i<cells.length;i++){
+        var pt = cells[i];
+        ev.grid[pt.r][pt.c].shot = true;
+        ev.grid[pt.r][pt.c].ship = sunkShip;
+      }
+      sndSink();
+    }
+    renderEnemy(enemyGridEl, ev);
+    if(m.defeated){
+      endGame("🎉 VICTORY! You sank the enemy fleet!", true);
+    } else {
+      // Turn passes to the opponent (the defender) — converges with their side.
+      active = 1 - mySeat;
+      phase = "battle";
+      statusEl.textContent = "Opponent's turn…";
+    }
+  }
+
+  // Dispatch incoming network messages. Echo guard: ignore anything I sent.
+  function onlineMessage(m){
+    if(mode !== "online") return;
+    if(m.seat === mySeat) return;   // relay echoes our own sends back
+    if(m.k === "ready"){
+      oppReady = true;
+      if(myReady) startBattleOnline();
+    } else if(m.k === "fire"){
+      onlineDefend(m.r, m.c);
+    } else if(m.k === "result"){
+      onlineResult(m);
+    }
+  }
+
+  // ---------- Event wiring ----------
+  document.getElementById("aiBtn").addEventListener("click", function(){ selectMode("ai"); });
+  document.getElementById("twoBtn").addEventListener("click", function(){ selectMode("2p"); });
+
+  playerGridEl.addEventListener("click", function(e){
+    var t = e.target.closest(".cell");
+    if(!t) return;
+    if(phase === "place") handlePlaceTap(+t.dataset.r, +t.dataset.c);
+  });
+  playerGridEl.addEventListener("pointermove", function(e){
+    if(phase !== "place") return;
+    var t = e.target.closest(".cell");
+    if(!t) return;
+    showPreview(+t.dataset.r, +t.dataset.c);
+  });
+  playerGridEl.addEventListener("pointerleave", function(){
+    if(phase === "place") clearPreview();
+  });
+  playerGridEl.addEventListener("pointerdown", function(e){
+    if(phase !== "place") return;
+    var t = e.target.closest(".cell");
+    if(!t) return;
+    showPreview(+t.dataset.r, +t.dataset.c);
+  });
+
+  enemyGridEl.addEventListener("click", function(e){
+    var t = e.target.closest(".cell");
+    if(!t) return;
+    if(mode === "online"){
+      onlineFire(+t.dataset.r, +t.dataset.c);
+    } else if(phase === "battle"){
+      playerFire(+t.dataset.r, +t.dataset.c);
+    }
+  });
+
+  document.getElementById("rotateBtn").addEventListener("click", function(){
+    horizontal = !horizontal;
+    this.textContent = "Rotate: " + (horizontal ? "↔" : "↕");
+    clearPreview();
+  });
+  document.getElementById("autoBtn").addEventListener("click", function(){
+    randomPlaceAll(boards[placingPlayer]);
+    placeIndex = FLEET.length;
+    renderOwn(playerGridEl, boards[placingPlayer]);
+    clearPreview();
+    updatePlaceLabel();
+    sndPlace();
+  });
+  startBtn.addEventListener("click", donePlacing);
+  document.getElementById("newGameBtn").addEventListener("click", function(){
+    if(mode === "online"){ restartOnline(); return; }
+    showMenu();
+  });
+
+  legendEl.textContent = "Carrier 5 · Battleship 4 · Cruiser 3 · Submarine 3 · Destroyer 2";
+
+  var resizeTimer;
+  window.addEventListener("resize", function(){
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(computeCellSize, 100);
+  });
+
+  document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
+  document.addEventListener("touchmove", function(e){
+    if(e.touches.length > 1) e.preventDefault();
+  }, { passive:false });
+
+  computeCellSize();
+  showMenu();
+
+  // ---------- Online multiplayer wiring ----------
+  GameMP.setup({ gameName: "Battleship" });
+  GameMP.onReady(function(role){ startOnline(role); });
+  GameMP.onMove(onlineMessage);
+  GameMP.onReset(function(){ if(mode === "online") startOnline(mySeat); });
+  GameMP.onPeerLeft(function(){
+    if(mode === "online" && !gameOver){
+      gameOver = true;
+      endGame("Opponent left.", false);
+    }
+  });
+})();
+</script>
+</body>
+</html>

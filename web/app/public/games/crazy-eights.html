@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Crazy Eights</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    touch-action: manipulation;
+    overscroll-behavior: none;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at 50% 30%, #15663a, #0a3d22 70%, #062a17);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    width: 100vw;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  header {
+    flex: 0 0 auto;
+    text-align: center;
+    padding: 8px 8px 4px;
+  }
+  header h1 {
+    font-size: 20px;
+    letter-spacing: 1px;
+    font-weight: 800;
+    text-shadow: 0 2px 4px rgba(0,0,0,.4);
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 13px;
+  }
+  .btn {
+    background: #fff;
+    color: #0a3d22;
+    border: none;
+    border-radius: 18px;
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,.3);
+  }
+  .btn:active { transform: scale(.95); }
+
+  .opp {
+    flex: 0 0 auto;
+    text-align: center;
+    padding: 4px 0;
+  }
+  .opp .cardback-row {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    min-height: 46px;
+    align-items: center;
+  }
+  .mini-back {
+    width: 26px;
+    height: 38px;
+    border-radius: 4px;
+    background: repeating-linear-gradient(45deg,#b22,#b22 4px,#811 4px,#811 8px);
+    border: 1.5px solid #fff;
+    box-shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+  .opp .label { font-size: 12px; opacity: .85; margin-top: 2px; }
+
+  .middle {
+    flex: 1 1 auto;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+    min-height: 0;
+  }
+  .pile { text-align: center; }
+  .pile .plabel { font-size: 11px; opacity: .8; margin-top: 4px; }
+
+  .card {
+    width: 72px;
+    height: 102px;
+    border-radius: 8px;
+    background: #fff;
+    position: relative;
+    box-shadow: 0 3px 6px rgba(0,0,0,.4);
+    display: inline-block;
+  }
+  .card .corner {
+    position: absolute;
+    font-weight: 800;
+    line-height: 1;
+    text-align: center;
+  }
+  .card .tl { top: 5px; left: 6px; }
+  .card .br { bottom: 5px; right: 6px; transform: rotate(180deg); }
+  .card .rank { font-size: 16px; }
+  .card .suit-sm { font-size: 14px; }
+  .card .center {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    font-size: 36px;
+  }
+  .red { color: #d11; }
+  .black { color: #111; }
+
+  .cardback {
+    width: 72px;
+    height: 102px;
+    border-radius: 8px;
+    background: repeating-linear-gradient(45deg,#b22,#b22 6px,#811 6px,#811 12px);
+    border: 3px solid #fff;
+    box-shadow: 0 3px 6px rgba(0,0,0,.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .cardback:active { transform: scale(.96); }
+  .cardback .qm { font-size: 30px; color: #fff; text-shadow: 0 1px 2px #000; }
+  .stock-count {
+    font-size: 11px; opacity:.8; margin-top:4px;
+  }
+  .suit-badge {
+    margin-top: 6px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .turn {
+    flex: 0 0 auto;
+    text-align: center;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 4px 0;
+    min-height: 22px;
+  }
+
+  .hand-wrap {
+    flex: 0 0 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 8px 10px;
+  }
+  .hand {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    min-height: 110px;
+    align-content: flex-start;
+  }
+  .hand .card { cursor: pointer; transition: transform .1s; }
+  .hand .card.playable { box-shadow: 0 0 0 3px #ffd54a, 0 3px 6px rgba(0,0,0,.4); }
+  .hand .card.playable:active { transform: translateY(-6px); }
+  .hand .card.dim { opacity: .55; }
+
+  /* overlay */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.7);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    padding: 20px;
+  }
+  .overlay.show { display: flex; }
+  .panel {
+    background: #0e4d2c;
+    border: 2px solid #fff;
+    border-radius: 16px;
+    padding: 22px;
+    text-align: center;
+    max-width: 320px;
+    width: 100%;
+    box-shadow: 0 8px 30px rgba(0,0,0,.5);
+  }
+  .panel h2 { font-size: 22px; margin-bottom: 8px; }
+  .panel p { font-size: 14px; margin-bottom: 16px; opacity: .9; }
+  .suit-picker {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 6px;
+  }
+  .suit-btn {
+    width: 60px; height: 60px;
+    border-radius: 12px;
+    background: #fff;
+    border: none;
+    font-size: 32px;
+    cursor: pointer;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow: 0 2px 5px rgba(0,0,0,.3);
+  }
+  .suit-btn:active { transform: scale(.92); }
+
+  .msg {
+    flex: 0 0 auto;
+    text-align: center;
+    font-size: 12px;
+    min-height: 16px;
+    opacity: .9;
+    padding-bottom: 2px;
+  }
+
+  /* mode-select buttons */
+  .mode-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 6px;
+  }
+  .mode-btn {
+    background: #fff;
+    color: #0a3d22;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 2px 5px rgba(0,0,0,.3);
+  }
+  .mode-btn:active { transform: scale(.96); }
+
+  /* Privacy handoff overlay (2-player pass & play) — fully OPAQUE so the player
+     taking the device cannot see the other player's hand. Sits below the
+     injected top-right menu (z 2147483646). */
+  .handoff-overlay {
+    position: fixed; inset: 0; z-index: 2147483640;
+    background: radial-gradient(circle at 50% 30%, #15663a, #0a3d22 70%, #062a17);
+    display: none; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .handoff-overlay.show { display: flex; }
+  .handoff-card {
+    text-align: center; display: flex; flex-direction: column;
+    gap: 18px; align-items: center;
+  }
+  #handoffTitle { font-size: 24px; font-weight: 800; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,.4); }
+  #handoffSub { font-size: 14px; color: #e8ffe8; max-width: 280px; line-height: 1.4; opacity: .9; }
+  /* Slide-to-reveal: a deliberate gesture so the hand is never exposed by an
+     accidental tap during a handoff. Drag the handle all the way across. */
+  .reveal-track {
+    position: relative;
+    width: min(320px, 78vw);
+    height: 60px;
+    border-radius: 30px;
+    background: #0e4d2c;
+    border: 1px solid #2e7a4e;
+    overflow: hidden;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+  .reveal-fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 56px;
+    background: #2faa5e;
+    border-radius: 30px;
+  }
+  .reveal-text {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font: 600 14px system-ui, sans-serif;
+    color: #bfe9cd;
+    letter-spacing: 1px;
+    pointer-events: none;
+    padding-left: 40px;
+  }
+  .reveal-handle {
+    position: absolute; left: 4px; top: 4px;
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: #2faa5e; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 700;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.45);
+    touch-action: none;
+  }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/crazy-eights.svg">
+    <link rel="manifest" href="/games/crazy-eights.webmanifest">
+    <meta name="theme-color" content="#DC2626">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Crazy Eights">
+    <link rel="apple-touch-icon" href="/games/icons/crazy-eights.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="crazy-eights",NAME="Crazy Eights",COLOR="#DC2626",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+  <header>
+    <h1>CRAZY EIGHTS</h1>
+    <div class="topbar">
+      <button class="btn" id="newBtn">New Game</button>
+      <span id="soundToggle" style="cursor:pointer;font-size:18px;">&#128266;</span>
+    </div>
+  </header>
+
+  <div class="opp">
+    <div class="cardback-row" id="oppRow"></div>
+    <div class="label" id="oppLabel">Opponent: 0 cards</div>
+  </div>
+
+  <div class="middle">
+    <div class="pile">
+      <div id="discardTop"></div>
+      <div class="suit-badge" id="suitBadge"></div>
+      <div class="plabel">Discard</div>
+    </div>
+    <div class="pile">
+      <div class="cardback" id="stockPile"><span class="qm">?</span></div>
+      <div class="stock-count" id="stockCount">0 left</div>
+      <div class="plabel">Stock &middot; tap to draw</div>
+    </div>
+  </div>
+
+  <div class="turn" id="turnIndicator">Your turn</div>
+  <div class="msg" id="message"></div>
+
+  <div class="hand-wrap">
+    <div class="hand" id="hand"></div>
+  </div>
+
+  <!-- win / message overlay -->
+  <div class="overlay" id="winOverlay">
+    <div class="panel">
+      <h2 id="winTitle">You Win!</h2>
+      <p id="winText"></p>
+      <button class="btn" id="winNewBtn" style="font-size:15px;padding:10px 20px;">New Game</button>
+    </div>
+  </div>
+
+  <!-- suit picker overlay -->
+  <div class="overlay" id="suitOverlay">
+    <div class="panel">
+      <h2>Choose a suit</h2>
+      <p id="suitPrompt">You played an 8 &mdash; pick the next suit.</p>
+      <div class="suit-picker" id="suitPicker"></div>
+    </div>
+  </div>
+
+  <!-- mode-select overlay -->
+  <div class="overlay" id="modeOverlay">
+    <div class="panel">
+      <h2>Crazy Eights</h2>
+      <p>Choose a mode</p>
+      <div class="mode-picker">
+        <button class="mode-btn" id="modeAi">🤖 vs Computer</button>
+        <button class="mode-btn" id="modeTwo">👥 2 Players</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- privacy handoff overlay (2-player pass & play) -->
+  <div class="handoff-overlay" id="handoff">
+    <div class="handoff-card">
+      <div id="handoffTitle">Pass the device</div>
+      <div id="handoffSub"></div>
+      <div id="revealTrack" class="reveal-track">
+        <div id="revealFill" class="reveal-fill"></div>
+        <div id="revealText" class="reveal-text">slide to reveal</div>
+        <div id="revealHandle" class="reveal-handle">›</div>
+      </div>
+    </div>
+  </div>
+
+<script src="/games/game-multiplayer.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  var SUITS = ["S","H","D","C"];
+  var SUIT_SYM = { S:"♠", H:"♥", D:"♦", C:"♣" };
+  var SUIT_NAME = { S:"Spades", H:"Hearts", D:"Diamonds", C:"Clubs" };
+  var SUIT_RED = { H:true, D:true };
+  var RANKS = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
+
+  // ---------- Audio ----------
+  var soundOn = true;
+  var actx = null;
+  function ac(){
+    if(!actx){
+      try { actx = new (window.AudioContext||window.webkitAudioContext)(); }
+      catch(e){ actx = null; }
+    }
+    return actx;
+  }
+  function beep(freq, dur, type, vol){
+    if(!soundOn) return;
+    var c = ac(); if(!c) return;
+    if(c.state === "suspended"){ try{c.resume();}catch(e){} }
+    var o = c.createOscillator();
+    var g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.value = freq;
+    g.gain.value = vol || 0.08;
+    o.connect(g); g.connect(c.destination);
+    var t = c.currentTime;
+    g.gain.setValueAtTime(g.gain.value, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (dur||0.12));
+    o.start(t);
+    o.stop(t + (dur||0.12) + 0.02);
+  }
+  var sfx = {
+    play:   function(){ beep(520,0.10,"triangle",0.10); },
+    draw:   function(){ beep(300,0.08,"sine",0.08); },
+    cpu:    function(){ beep(420,0.10,"sine",0.07); },
+    bad:    function(){ beep(150,0.15,"sawtooth",0.07); },
+    win:    function(){ beep(523,0.12,"triangle",0.12); setTimeout(function(){beep(659,0.12,"triangle",0.12);},120); setTimeout(function(){beep(784,0.18,"triangle",0.12);},250); },
+    lose:   function(){ beep(330,0.15,"sine",0.10); setTimeout(function(){beep(220,0.25,"sine",0.10);},150); },
+    wild:   function(){ beep(660,0.08,"square",0.06); setTimeout(function(){beep(880,0.10,"square",0.06);},80); }
+  };
+
+  // ---------- Game state ----------
+  var stock = [];      // draw pile (top = end)
+  var discard = [];    // discard pile (top = last element)
+  var player = [];     // player's hand
+  var cpu = [];        // cpu's hand
+  var activeSuit = null; // current required suit (matters after an 8)
+  var turn = "player"; // "player" | "cpu" — whose turn it is
+  var gameOver = false;
+  var busy = false;    // lock input during animations / cpu turn / handoff
+  var drewThisTurn = false; // whether active seat has drawn at least once this turn
+
+  // mode: 'ai' = vs computer (DEFAULT, unchanged), '2p' = pass & play hot seat,
+  // 'online' = N-player networked match over GameMP (2–6 players).
+  // In 'ai', seat "player" is the human and seat "cpu" is the computer.
+  // In '2p', seat "player" is Player 1 and seat "cpu" is Player 2 (both human).
+  // In 'online' the local/AI seat model is bypassed entirely — see the ONLINE
+  // section below (onSeat / onCount / onHands / onTurnSeat), which has its own
+  // deterministic deal, render, and action paths.
+  var mode = "ai";
+
+  // In '2p', the hand area always renders from the perspective of the seat whose
+  // turn it is. In 'ai' the human ("player") always views their own hand.
+  function viewerSeat(){ return (mode === "2p") ? turn : "player"; }
+  function isHumanTurn(){ return (mode === "2p") ? true : (turn === "player"); }
+  // hand arrays per seat
+  function handOf(seat){ return seat === "player" ? player : cpu; }
+  // display name for a seat
+  function sideName(seat){
+    if(mode === "2p") return seat === "player" ? "Player 1" : "Player 2";
+    return seat === "player" ? "You" : "Opponent";
+  }
+
+  // DOM refs
+  var elHand = document.getElementById("hand");
+  var elOppRow = document.getElementById("oppRow");
+  var elOppLabel = document.getElementById("oppLabel");
+  var elDiscardTop = document.getElementById("discardTop");
+  var elSuitBadge = document.getElementById("suitBadge");
+  var elStockCount = document.getElementById("stockCount");
+  var elStockPile = document.getElementById("stockPile");
+  var elTurn = document.getElementById("turnIndicator");
+  var elMsg = document.getElementById("message");
+  var elWinOverlay = document.getElementById("winOverlay");
+  var elWinTitle = document.getElementById("winTitle");
+  var elWinText = document.getElementById("winText");
+  var elSuitOverlay = document.getElementById("suitOverlay");
+  var elSuitPicker = document.getElementById("suitPicker");
+  var elSuitPrompt = document.getElementById("suitPrompt");
+  var elModeOverlay = document.getElementById("modeOverlay");
+  var elHandoff = document.getElementById("handoff");
+
+  function buildDeck(){
+    var d = [];
+    for(var s=0;s<SUITS.length;s++){
+      for(var r=0;r<RANKS.length;r++){
+        d.push({ suit: SUITS[s], rank: RANKS[r] });
+      }
+    }
+    return d;
+  }
+  function shuffle(a){
+    for(var i=a.length-1;i>0;i--){
+      var j = Math.floor(Math.random()*(i+1));
+      var t = a[i]; a[i]=a[j]; a[j]=t;
+    }
+    return a;
+  }
+
+  function topCard(){ return discard[discard.length-1]; }
+
+  // can `card` be legally played given top + activeSuit?
+  function canPlay(card){
+    if(card.rank === "8") return true;       // wild
+    var top = topCard();
+    if(card.suit === activeSuit) return true; // matches required suit
+    if(card.rank === top.rank) return true;   // matches rank
+    return false;
+  }
+
+  function ensureStock(){
+    // refill stock from discard (keeping top) if empty
+    if(stock.length === 0 && discard.length > 1){
+      var keep = discard.pop();
+      shuffle(discard);
+      stock = discard;
+      discard = [keep];
+    }
+  }
+
+  function newGame(){
+    stock = shuffle(buildDeck());
+    discard = [];
+    player = [];
+    cpu = [];
+    gameOver = false;
+    busy = false;
+    drewThisTurn = false;
+    elWinOverlay.classList.remove("show");
+    elSuitOverlay.classList.remove("show");
+    setHandoff(false);
+
+    for(var i=0;i<7;i++){ player.push(stock.pop()); cpu.push(stock.pop()); }
+
+    // flip starter; if it's an 8, just set active suit to its own suit (simple, valid)
+    var starter = stock.pop();
+    discard.push(starter);
+    activeSuit = starter.suit;
+
+    turn = "player";
+    sortHand();
+    setMsg("");
+    render();
+  }
+
+  function sortCards(arr){
+    arr.sort(function(a,b){
+      if(a.suit !== b.suit) return SUITS.indexOf(a.suit) - SUITS.indexOf(b.suit);
+      return RANKS.indexOf(a.rank) - RANKS.indexOf(b.rank);
+    });
+  }
+  // Sort the hand(s) that a human views face-up so cards stay tidy.
+  function sortHand(){
+    sortCards(player);
+    if(mode === "2p") sortCards(cpu);
+  }
+
+  // ---------- Rendering ----------
+  function cardHTML(card){
+    var red = SUIT_RED[card.suit];
+    var cls = red ? "red" : "black";
+    var sym = SUIT_SYM[card.suit];
+    return '<div class="corner tl '+cls+'"><span class="rank">'+card.rank+'</span><br><span class="suit-sm">'+sym+'</span></div>'+
+           '<div class="center '+cls+'">'+sym+'</div>'+
+           '<div class="corner br '+cls+'"><span class="rank">'+card.rank+'</span><br><span class="suit-sm">'+sym+'</span></div>';
+  }
+
+  function render(){
+    // In online mode, the seat-indexed network renderer owns the board.
+    if(mode === "online"){ onRender(); return; }
+    // Perspective: the seat whose hand we render face-up (active human viewer).
+    // In 'ai' this is always "player"; in '2p' it follows whose turn it is.
+    var viewer = viewerSeat();
+    var other = (viewer === "player") ? "cpu" : "player";
+    var myHand = handOf(viewer);
+    var otherHand = handOf(other);
+
+    // opponent (the other seat) backs — hidden hand, only the count is public
+    var backs = "";
+    var n = otherHand.length;
+    var show = Math.min(n, 8);
+    for(var i=0;i<show;i++){ backs += '<div class="mini-back"></div>'; }
+    elOppRow.innerHTML = backs || '<div style="height:38px;"></div>';
+    elOppLabel.textContent = sideName(other) + ": " + n + (n===1?" card":" cards");
+
+    // discard top (public)
+    var top = topCard();
+    var td = document.createElement("div");
+    td.className = "card";
+    td.innerHTML = cardHTML(top);
+    elDiscardTop.innerHTML = "";
+    elDiscardTop.appendChild(td);
+
+    // active suit badge (show when it differs from top suit, i.e. after a wild 8)
+    if(top.rank === "8" || activeSuit !== top.suit){
+      var red = SUIT_RED[activeSuit];
+      elSuitBadge.innerHTML = 'Suit: <span class="'+(red?"red":"")+'" style="'+(red?"color:#ff8a8a":"color:#fff")+'">'+SUIT_SYM[activeSuit]+" "+SUIT_NAME[activeSuit]+'</span>';
+    } else {
+      elSuitBadge.innerHTML = "";
+    }
+
+    // stock count (public)
+    elStockCount.textContent = stock.length + " left";
+
+    // hand — always the viewer's own cards, face-up. Playable highlight only
+    // when it's actually the viewer's turn and input isn't locked.
+    elHand.innerHTML = "";
+    var myTurn = (turn === viewer && !gameOver && !busy);
+    var anyPlayable = false;
+    for(var k=0;k<myHand.length;k++){
+      (function(card){
+        var c = document.createElement("div");
+        c.className = "card";
+        c.innerHTML = cardHTML(card);
+        var playable = canPlay(card);
+        if(myTurn){
+          if(playable){ c.classList.add("playable"); anyPlayable = true; }
+          else { c.classList.add("dim"); }
+        }
+        c.addEventListener("click", function(){ onPlayCard(card); });
+        elHand.appendChild(c);
+      })(myHand[k]);
+    }
+
+    // turn indicator
+    if(gameOver){
+      elTurn.textContent = "";
+    } else if(mode === "2p"){
+      // The viewer is always the seat to move (we render the active player), so
+      // address them directly by name.
+      elTurn.textContent = anyPlayable
+        ? sideName(turn) + " — play a card"
+        : sideName(turn) + " — no plays, draw a card";
+      elTurn.style.color = "#ffd54a";
+    } else if(turn === "player"){
+      elTurn.textContent = anyPlayable ? "Your turn — play a card" : "Your turn — no plays, draw a card";
+      elTurn.style.color = "#ffd54a";
+    } else {
+      elTurn.textContent = "Opponent's turn…";
+      elTurn.style.color = "#fff";
+    }
+  }
+
+  function setMsg(t){ elMsg.textContent = t; }
+
+  // ---------- Player actions ----------
+  // These run for whichever seat is the active human (in '2p' either seat; in
+  // 'ai' always "player"). The active seat's hand is handOf(turn).
+  function onPlayCard(card){
+    if(gameOver || busy || !isHumanTurn()) return;
+    var hand = handOf(turn);
+    if(hand.indexOf(card) < 0) return; // not the active seat's card
+    if(!canPlay(card)){
+      sfx.bad();
+      setMsg("Can't play that — match suit ("+SUIT_NAME[activeSuit]+") or rank ("+topCard().rank+"), or an 8.");
+      return;
+    }
+    // remove from active hand
+    var idx = hand.indexOf(card);
+    hand.splice(idx,1);
+    discard.push(card);
+
+    if(card.rank === "8"){
+      // wild: ask the ACTIVE player to choose the next suit
+      sfx.wild();
+      render();
+      openSuitPicker(function(chosen){
+        activeSuit = chosen;
+        afterPlayerPlay();
+      });
+      return;
+    } else {
+      activeSuit = card.suit;
+      sfx.play();
+      afterPlayerPlay();
+    }
+  }
+
+  function afterPlayerPlay(){
+    setMsg("");
+    if(handOf(turn).length === 0){
+      render();
+      endGame(turn); // this seat emptied their hand → winner
+      return;
+    }
+    passTurn();
+  }
+
+  function onDraw(){
+    if(mode === "online") return; // online draws are handled by onDrawNet()
+    if(gameOver || busy || !isHumanTurn()) return;
+    var hand = handOf(turn);
+    ensureStock();
+    if(stock.length === 0){
+      // nothing to draw; pass to the next seat
+      setMsg(mode === "2p" ? "Stock empty — " + sideName(turn) + " passes." : "Stock empty — you pass.");
+      sfx.draw();
+      passTurn();
+      return;
+    }
+    var card = stock.pop();
+    hand.push(card);
+    sortHand();
+    drewThisTurn = true;
+    sfx.draw();
+    if(canPlay(card)){
+      setMsg("Drew the "+card.rank+SUIT_SYM[card.suit]+" — you can play it.");
+    } else {
+      setMsg("Drew the "+card.rank+SUIT_SYM[card.suit]+". Draw again or tap a card.");
+    }
+    render();
+  }
+
+  // Advance to the next seat. In 'ai' this hands off to the CPU; in '2p' it
+  // covers the screen with the privacy handoff before revealing the new hand.
+  function passTurn(){
+    drewThisTurn = false;
+    if(mode === "2p"){
+      // Lock input BEFORE the overlay appears so a fast double-tap can't act for
+      // the wrong player, and so the old hand isn't shown to the incoming player.
+      busy = true;
+      var next = (turn === "player") ? "cpu" : "player";
+      turn = next;
+      // Keep showing the OUTGOING perspective until the overlay covers the screen.
+      showHandoff(sideName(next), sideName(next) + ": your turn. Hand the device over — others, look away!", function(){
+        busy = false;
+        render(); // re-render for the NEW active player only after slide completes
+      });
+    } else {
+      turn = "cpu";
+      render();
+      busy = true;
+      setTimeout(cpuTurn, 750);
+    }
+  }
+
+  // ---------- Suit picker (for the ACTIVE player who just played an 8) ----------
+  function openSuitPicker(cb){
+    elSuitPrompt.textContent = (mode === "2p" ? sideName(turn) + " played an 8" : "You played an 8") + " — pick the next suit.";
+    elSuitPicker.innerHTML = "";
+    SUITS.forEach(function(s){
+      var b = document.createElement("button");
+      b.className = "suit-btn " + (SUIT_RED[s] ? "red":"black");
+      b.textContent = SUIT_SYM[s];
+      b.style.color = SUIT_RED[s] ? "#d11" : "#111";
+      b.addEventListener("click", function(){
+        elSuitOverlay.classList.remove("show");
+        setMsg("You chose "+SUIT_NAME[s]+".");
+        cb(s);
+      });
+      elSuitPicker.appendChild(b);
+    });
+    elSuitOverlay.classList.add("show");
+  }
+
+  // ---------- CPU ----------
+  function cpuPickSuit(){
+    // choose the suit the CPU holds most of (excluding 8s); fallback random
+    var counts = { S:0,H:0,D:0,C:0 };
+    for(var i=0;i<cpu.length;i++){
+      if(cpu[i].rank !== "8") counts[cpu[i].suit]++;
+    }
+    var best = null, bestN = -1;
+    SUITS.forEach(function(s){ if(counts[s] > bestN){ bestN = counts[s]; best = s; } });
+    if(bestN <= 0){ best = SUITS[Math.floor(Math.random()*4)]; }
+    return best;
+  }
+
+  function cpuChooseCard(){
+    // legal non-8 plays preferred; among them prefer matching the active suit,
+    // then highest rank to shed points. Save 8s for when nothing else works.
+    var top = topCard();
+    var nonEights = [];
+    var eights = [];
+    for(var i=0;i<cpu.length;i++){
+      var c = cpu[i];
+      if(c.rank === "8"){ eights.push(c); continue; }
+      if(c.suit === activeSuit || c.rank === top.rank){ nonEights.push(c); }
+    }
+    if(nonEights.length){
+      // prefer ones matching current suit (keeps suit stable), then higher rank
+      nonEights.sort(function(a,b){
+        var as = (a.suit === activeSuit) ? 1 : 0;
+        var bs = (b.suit === activeSuit) ? 1 : 0;
+        if(as !== bs) return bs - as;
+        return RANKS.indexOf(b.rank) - RANKS.indexOf(a.rank);
+      });
+      return nonEights[0];
+    }
+    if(eights.length) return eights[0];
+    return null;
+  }
+
+  function cpuTurn(){
+    if(gameOver){ busy=false; return; }
+    var card = cpuChooseCard();
+    var drawCount = 0;
+    // if no playable card, draw until one is found (or stock truly exhausted)
+    while(!card){
+      ensureStock();
+      if(stock.length === 0){
+        // cannot draw, must pass
+        setMsg("Opponent has no play and passes.");
+        sfx.cpu();
+        finishCpuTurn();
+        return;
+      }
+      var drawn = stock.pop();
+      cpu.push(drawn);
+      drawCount++;
+      sfx.draw();
+      if(canPlay(drawn)) card = drawn;
+      if(drawCount > 60) break; // safety
+    }
+    if(!card){ finishCpuTurn(); return; }
+
+    // play it
+    var idx = cpu.indexOf(card);
+    cpu.splice(idx,1);
+    discard.push(card);
+
+    if(card.rank === "8"){
+      activeSuit = cpuPickSuit();
+      sfx.wild();
+      setMsg("Opponent played an 8 and chose "+SUIT_NAME[activeSuit]+".");
+    } else {
+      activeSuit = card.suit;
+      sfx.cpu();
+      setMsg("Opponent played "+card.rank+SUIT_SYM[card.suit]+(drawCount? " (after drawing "+drawCount+")":"")+".");
+    }
+
+    if(cpu.length === 0){
+      render();
+      endGame("cpu");
+      return;
+    }
+    finishCpuTurn();
+  }
+
+  function finishCpuTurn(){
+    turn = "player";
+    drewThisTurn = false;
+    busy = false;
+    render();
+  }
+
+  // ---------- End ----------
+  // winnerSeat: "player" | "cpu" — the seat that emptied its hand first.
+  function endGame(winnerSeat){
+    gameOver = true;
+    busy = false;
+    // Make sure the overlay isn't hiding the final board.
+    setHandoff(false);
+    render();
+    if(mode === "2p"){
+      sfx.win();
+      elWinTitle.textContent = sideName(winnerSeat) + " Wins! \u{1F389}";
+      elWinText.textContent = sideName(winnerSeat) + " emptied their hand first.";
+    } else if(winnerSeat === "player"){
+      sfx.win();
+      elWinTitle.textContent = "You Win! \u{1F389}";
+      elWinText.textContent = "You emptied your hand first. Nicely played!";
+    } else {
+      sfx.lose();
+      elWinTitle.textContent = "You Lose";
+      elWinText.textContent = "The opponent emptied their hand first. Try again!";
+    }
+    elWinOverlay.classList.add("show");
+  }
+
+  // ---------- Privacy handoff (2-player pass & play) ----------
+  // Full-screen OPAQUE overlay between players: the incoming player must drag the
+  // handle all the way across (a deliberate gesture) before their hand is shown,
+  // so an accidental tap can never expose it.
+  function setHandoff(show){ elHandoff.classList.toggle("show", !!show); }
+
+  var slideMove = null, slideUp = null; // active window listeners (cleaned on reveal)
+  function showHandoff(toName, subText, cb){
+    document.getElementById("handoffTitle").textContent = "Pass to " + toName;
+    document.getElementById("handoffSub").textContent = subText;
+    setHandoff(true);
+    initSlider(function(){ setHandoff(false); cb(); });
+  }
+
+  function initSlider(onReveal){
+    var track  = document.getElementById("revealTrack");
+    var handle = document.getElementById("revealHandle");
+    var fill   = document.getElementById("revealFill");
+    var text   = document.getElementById("revealText");
+    var dragging = false, done = false, grabDX = 0, x = 0, maxX = 0;
+
+    function layout(){ maxX = Math.max(0, track.clientWidth - handle.offsetWidth - 8); }
+    function paint(px){
+      x = Math.max(0, Math.min(maxX, px));
+      handle.style.left = (4 + x) + "px";
+      fill.style.width  = (handle.offsetWidth + 4 + x) + "px";
+      text.style.opacity = maxX ? String(Math.max(0, 1 - x / maxX)) : "1";
+    }
+    function animate(on){
+      handle.style.transition = on ? "left .2s" : "";
+      fill.style.transition   = on ? "width .2s" : "";
+    }
+    function cleanup(){
+      window.removeEventListener("pointermove", slideMove);
+      window.removeEventListener("pointerup", slideUp);
+      window.removeEventListener("pointercancel", slideUp);
+      slideMove = slideUp = null;
+    }
+    function reset(){
+      animate(true); paint(0);
+      setTimeout(function(){ animate(false); }, 210);
+    }
+    function complete(){
+      done = true;
+      animate(true); paint(maxX);
+      cleanup();
+      setTimeout(onReveal, 190);
+    }
+    function ptX(e){ return e.clientX != null ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0); }
+
+    function down(e){
+      if(done) return;
+      layout();
+      dragging = true;
+      animate(false);
+      grabDX = ptX(e) - x;
+      e.preventDefault();
+    }
+    slideMove = function(e){
+      if(!dragging || done) return;
+      e.preventDefault();
+      paint(ptX(e) - grabDX);
+    };
+    slideUp = function(){
+      if(!dragging || done) return;
+      dragging = false;
+      if(x >= maxX - 4) complete(); else reset();
+    };
+
+    cleanup();
+    done = false; dragging = false;
+    layout(); animate(false); paint(0); text.style.opacity = "1";
+    track.onpointerdown = down;
+    window.addEventListener("pointermove", slideMove, { passive: false });
+    window.addEventListener("pointerup", slideUp);
+    window.addEventListener("pointercancel", slideUp);
+  }
+
+  // ---------- Mode selection ----------
+  function showModeSelect(){ elModeOverlay.classList.add("show"); }
+  function startMode(m){
+    mode = m;
+    elModeOverlay.classList.remove("show");
+    try{ac()&&ac().resume();}catch(e){}
+    newGame();
+  }
+
+  // ---------- Wiring ----------
+  elStockPile.addEventListener("click", onDraw);
+  // "New Game" returns to the mode picker so you can switch AI / 2-player.
+  document.getElementById("newBtn").addEventListener("click", function(){ try{ac()&&ac().resume();}catch(e){} showModeSelect(); });
+  // "Play Again" from the win overlay restarts the SAME mode (local only; the
+  // online rematch is wired separately and uses host-broadcast re-deal).
+  document.getElementById("winNewBtn").addEventListener("click", function(){ if(mode !== "online") newGame(); });
+  document.getElementById("modeAi").addEventListener("click", function(){ startMode("ai"); });
+  document.getElementById("modeTwo").addEventListener("click", function(){ startMode("2p"); });
+
+  var soundEl = document.getElementById("soundToggle");
+  soundEl.addEventListener("click", function(){
+    soundOn = !soundOn;
+    soundEl.innerHTML = soundOn ? "\u{1F50A}" : "\u{1F507}";
+    if(soundOn){ try{ac()&&ac().resume();}catch(e){} beep(440,0.08,"sine",0.08); }
+  });
+
+  // prevent double-tap zoom / context menu
+  document.addEventListener("gesturestart", function(e){ e.preventDefault(); });
+  document.addEventListener("contextmenu", function(e){ e.preventDefault(); });
+
+  // ======================================================================
+  // ONLINE MULTIPLAYER (GameMP) — N players, 2–6
+  // ----------------------------------------------------------------------
+  // Lockstep, host-seeded. There is no authoritative server: seat 0 picks a
+  // seed and broadcasts {action:"start", seed}; EVERY client builds the same
+  // 52-card deck, shuffles it with the same seeded PRNG, and deals identically
+  // (7 cards each for 2 players, 5 otherwise). From then on each move
+  // ({play|draw|pass|reshuffle}) is applied deterministically on every client,
+  // so all clients stay in sync from the one shared deal. Hands are soft-hidden
+  // (every client technically holds the full deal in memory) — fine for casual
+  // play. Turn order follows seat order; we only ACT on our own seat and we
+  // gate input so we can never play out of turn.
+  //
+  // Reuses the shared globals/DOM where it can: discard[], activeSuit, topCard(),
+  // canPlay(), cardHTML(), and the same hand / pile / overlay elements. It keeps
+  // its own seat-indexed hands (onHands) and stock so the 2-seat local model is
+  // untouched.
+  function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+  function seededShuffle(arr,rng){for(var i=arr.length-1;i>0;i--){var j=Math.floor(rng()*(i+1));var t=arr[i];arr[i]=arr[j];arr[j]=t;}return arr;}
+
+  var onSeat = 0;        // our seat index (0..N-1); seat 0 = host
+  var onCount = 2;       // number of players in this match
+  var onHands = [];      // onHands[seat] -> array of card objects
+  var onTurnSeat = 0;    // whose turn it is (seat index)
+  var onStock = [];      // shared draw pile (deterministic; top = end)
+  var onDrewThisTurn = false; // did the active seat already draw once this turn?
+  var onAwaitSuit = false;    // true while WE (host or us) are picking a suit for our 8
+  var onOver = false;
+  var onSeed = 0;        // current deal seed (for reshuffle derivation)
+  var reshuffleCounter = 0;
+
+  function onMyTurn(){ return mode === "online" && !onOver && onTurnSeat === onSeat && !onAwaitSuit; }
+  function onName(seat){ return seat === onSeat ? "You" : "Player " + (seat + 1); }
+  function onNextSeat(seat){ return (seat + 1) % onCount; }
+
+  // Build the identical deal on every client from a seed.
+  function onDeal(seed){
+    onSeed = seed >>> 0;
+    reshuffleCounter = 0;
+    var rng = mulberry32(onSeed);
+    var deck = seededShuffle(buildDeck(), rng); // top = end (we pop)
+    onHands = [];
+    for(var s=0;s<onCount;s++) onHands.push([]);
+    var per = (onCount === 2) ? 7 : 5;
+    // Deal round-robin starting at seat 0, mirroring a real deal.
+    for(var n=0;n<per;n++){
+      for(var s2=0;s2<onCount;s2++){ onHands[s2].push(deck.pop()); }
+    }
+    // Flip one card to start the discard pile; remainder is the stock.
+    discard = [deck.pop()];
+    onStock = deck; // top = end (we pop)
+    activeSuit = topCard().suit;
+    onTurnSeat = 0;
+    onOver = false;
+    onDrewThisTurn = false;
+    onAwaitSuit = false;
+    sortCards(onHands[onSeat]);
+  }
+
+  // Refill the stock from the discard pile when it empties — done in lockstep.
+  // This is only ever called by the player who is currently drawing (it's their
+  // turn), so THAT seat is the authority: it derives a deterministic reshuffle
+  // seed, broadcasts it, and applies it; every other client applies the same
+  // seed on receipt (onMove), so all stocks end up identical. Returns true once
+  // the stock has cards again.
+  function onEnsureStock(){
+    if(onStock.length > 0) return true;
+    if(discard.length <= 1) return false; // nothing to recycle
+    var seed = (onSeed ^ (0x9E3779B9 * (reshuffleCounter + 1))) >>> 0;
+    GameMP.send({ action: "reshuffle", seat: onSeat, seed: seed });
+    onApplyReshuffle(seed);
+    return onStock.length > 0;
+  }
+  function onApplyReshuffle(seed){
+    if(discard.length <= 1) return;
+    reshuffleCounter++;
+    var keep = discard.pop();
+    var rng = mulberry32(seed >>> 0);
+    onStock = seededShuffle(discard, rng);
+    discard = [keep];
+  }
+
+  // ---- Online rendering -------------------------------------------------
+  function onRender(){
+    if(mode !== "online") return;
+    // Opponents row: show every OTHER seat as a stack of card-backs + count,
+    // with a turn highlight. (Reuses the single opponents row.)
+    var html = "";
+    var labelParts = [];
+    for(var s=0;s<onCount;s++){
+      if(s === onSeat) continue;
+      var n = onHands[s].length;
+      var show = Math.min(n, 6);
+      var isTurn = (onTurnSeat === s && !onOver);
+      html += '<span style="display:inline-flex;flex-direction:column;align-items:center;margin:0 6px;'+
+              (isTurn ? 'filter:drop-shadow(0 0 4px #ffd54a);' : '') + '">';
+      html += '<span style="display:flex;gap:2px;">';
+      for(var i=0;i<show;i++){ html += '<span class="mini-back"></span>'; }
+      if(show === 0){ html += '<span style="height:38px;display:inline-block;"></span>'; }
+      html += '</span>';
+      html += '<span class="label" style="'+(isTurn?'color:#ffd54a;font-weight:700;':'')+'">'+
+              'Player '+(s+1)+': '+n+(n===1?' card':' cards')+'</span>';
+      html += '</span>';
+      labelParts.push("P"+(s+1)+" "+n);
+    }
+    elOppRow.innerHTML = html;
+    elOppLabel.textContent = "";
+
+    // discard top + active suit badge
+    var top = topCard();
+    var td = document.createElement("div");
+    td.className = "card";
+    td.innerHTML = cardHTML(top);
+    elDiscardTop.innerHTML = "";
+    elDiscardTop.appendChild(td);
+    if(top.rank === "8" || activeSuit !== top.suit){
+      var red = SUIT_RED[activeSuit];
+      elSuitBadge.innerHTML = 'Suit: <span style="'+(red?"color:#ff8a8a":"color:#fff")+'">'+SUIT_SYM[activeSuit]+" "+SUIT_NAME[activeSuit]+'</span>';
+    } else { elSuitBadge.innerHTML = ""; }
+
+    elStockCount.textContent = onStock.length + " left";
+
+    // our hand (face-up); legal cards highlighted only on our turn
+    elHand.innerHTML = "";
+    var myHand = onHands[onSeat];
+    var canAct = onMyTurn();
+    var anyPlayable = false;
+    for(var k=0;k<myHand.length;k++){
+      (function(card){
+        var c = document.createElement("div");
+        c.className = "card";
+        c.innerHTML = cardHTML(card);
+        if(canAct){
+          if(canPlay(card)){ c.classList.add("playable"); anyPlayable = true; }
+          else { c.classList.add("dim"); }
+        }
+        c.addEventListener("click", function(){ onPlayCardNet(card); });
+        elHand.appendChild(c);
+      })(myHand[k]);
+    }
+
+    // turn indicator
+    if(onOver){
+      elTurn.textContent = "";
+    } else if(onTurnSeat === onSeat){
+      elTurn.textContent = anyPlayable ? "Your turn — play a card" : "Your turn — draw a card";
+      elTurn.style.color = "#ffd54a";
+    } else {
+      elTurn.textContent = "Player " + (onTurnSeat + 1) + "'s turn…";
+      elTurn.style.color = "#fff";
+    }
+  }
+
+  // ---- Online actions ---------------------------------------------------
+  // Play a card from OUR hand. 8s are wild: we pick the suit, then broadcast.
+  function onPlayCardNet(card){
+    if(!onMyTurn()) return;
+    var hand = onHands[onSeat];
+    if(hand.indexOf(card) < 0) return;
+    if(!canPlay(card)){
+      sfx.bad();
+      setMsg("Can't play that — match suit ("+SUIT_NAME[activeSuit]+") or rank ("+topCard().rank+"), or an 8.");
+      return;
+    }
+    if(card.rank === "8"){
+      onAwaitSuit = true;
+      sfx.wild();
+      render();
+      openSuitPickerOnline(function(chosen){
+        onAwaitSuit = false;
+        onApplyPlay(onSeat, card, chosen);
+        GameMP.send({ action: "play", seat: onSeat, card: card, declaredSuit: chosen });
+      });
+      return;
+    }
+    onApplyPlay(onSeat, card, null);
+    GameMP.send({ action: "play", seat: onSeat, card: card });
+  }
+
+  // Apply a play (ours or a peer's) deterministically. declaredSuit only for 8s.
+  function onApplyPlay(seat, card, declaredSuit){
+    var hand = onHands[seat];
+    // remove the matching card object (peer cards are value-equal, not identical)
+    var idx = -1;
+    for(var i=0;i<hand.length;i++){ if(hand[i].rank === card.rank && hand[i].suit === card.suit){ idx = i; break; } }
+    if(idx >= 0) hand.splice(idx,1);
+    discard.push({ rank: card.rank, suit: card.suit });
+    if(card.rank === "8"){
+      activeSuit = declaredSuit || card.suit;
+      if(seat !== onSeat) sfx.wild();
+      setMsg(onName(seat) + " played an 8 → " + SUIT_NAME[activeSuit] + ".");
+    } else {
+      activeSuit = card.suit;
+      sfx.play();
+      setMsg(onName(seat) + " played " + card.rank + SUIT_SYM[card.suit] + ".");
+    }
+    onDrewThisTurn = false;
+    if(hand.length === 0){ onEndGame(seat); return; }
+    onTurnSeat = onNextSeat(seat);
+    onRender();
+  }
+
+  // Draw one card. If it isn't playable, the player may draw again or pass.
+  function onDrawNet(){
+    if(!onMyTurn()) return;
+    if(onStock.length === 0){
+      if(!onEnsureStock()){
+        // No cards left to draw at all → pass.
+        setMsg("Stock empty — you pass.");
+        sfx.draw();
+        onApplyPass(onSeat);
+        GameMP.send({ action: "pass", seat: onSeat });
+        return;
+      }
+    }
+    var card = onStock.pop();
+    onHands[onSeat].push(card);
+    sortCards(onHands[onSeat]);
+    onDrewThisTurn = true;
+    sfx.draw();
+    GameMP.send({ action: "draw", seat: onSeat, card: card });
+    if(canPlay(card)){
+      setMsg("Drew the " + card.rank + SUIT_SYM[card.suit] + " — you can play it.");
+    } else {
+      setMsg("Drew the " + card.rank + SUIT_SYM[card.suit] + ". Draw again or pass.");
+    }
+    onRender();
+  }
+
+  // A peer drew (we remove the same card from the shared stock to stay in sync).
+  function onApplyDraw(seat, card){
+    // The card is removed from the deterministic stock; locate & splice it so the
+    // pile order stays identical for everyone.
+    if(onStock.length){
+      var top = onStock[onStock.length-1];
+      if(top && top.rank === card.rank && top.suit === card.suit){ onStock.pop(); }
+      else {
+        for(var i=onStock.length-1;i>=0;i--){ if(onStock[i].rank===card.rank && onStock[i].suit===card.suit){ onStock.splice(i,1); break; } }
+      }
+    }
+    onHands[seat].push({ rank: card.rank, suit: card.suit });
+    sfx.draw();
+    setMsg("Player " + (seat+1) + " drew a card.");
+    onRender();
+  }
+
+  function onApplyPass(seat){
+    onDrewThisTurn = false;
+    onTurnSeat = onNextSeat(seat);
+    if(seat !== onSeat) setMsg("Player " + (seat+1) + " passed.");
+    onRender();
+  }
+
+  // Suit picker for an 8 in online mode (own dedicated callback path).
+  function openSuitPickerOnline(cb){
+    elSuitPrompt.textContent = "You played an 8 — pick the next suit.";
+    elSuitPicker.innerHTML = "";
+    SUITS.forEach(function(s){
+      var b = document.createElement("button");
+      b.className = "suit-btn";
+      b.textContent = SUIT_SYM[s];
+      b.style.color = SUIT_RED[s] ? "#d11" : "#111";
+      b.addEventListener("click", function(){
+        elSuitOverlay.classList.remove("show");
+        setMsg("You chose " + SUIT_NAME[s] + ".");
+        cb(s);
+      });
+      elSuitPicker.appendChild(b);
+    });
+    elSuitOverlay.classList.add("show");
+  }
+
+  function onEndGame(winnerSeat){
+    onOver = true;
+    onRender();
+    var iWon = winnerSeat === onSeat;
+    if(iWon){ sfx.win(); } else { sfx.lose(); }
+    elWinTitle.textContent = iWon ? "You Win! \u{1F389}" : (onName(winnerSeat) + " Wins!");
+    elWinText.textContent = iWon
+      ? "You emptied your hand first. Nicely played!"
+      : "Player " + (winnerSeat+1) + " emptied their hand first.";
+    if(window.AdrientGame && iWon) window.AdrientGame.setHighScore(window.AdrientGame.highScore() + 1);
+    // Host-only rematch (re-seeds + broadcasts a fresh deal via onReset).
+    var wb = document.getElementById("winNewBtn");
+    wb.textContent = onSeat === 0 ? "Play again" : "Waiting for host…";
+    wb.style.display = onSeat === 0 ? "" : "none";
+    elWinOverlay.classList.add("show");
+  }
+
+  function onStartFresh(){
+    // Seat 0 picks a seed, broadcasts the deal, and everyone deals identically.
+    var seed = (Math.floor(Math.random() * 0xFFFFFFFF)) >>> 0;
+    GameMP.send({ action: "start", seat: 0, seed: seed });
+    onBeginMatch(seed);
+  }
+  function onBeginMatch(seed){
+    mode = "online";
+    elModeOverlay.classList.remove("show");
+    elWinOverlay.classList.remove("show");
+    elSuitOverlay.classList.remove("show");
+    setHandoff(false);
+    busy = false; gameOver = false;
+    onDeal(seed);
+    setMsg("");
+    onRender();
+  }
+
+  // GameMP wiring -------------------------------------------------------
+  GameMP.setup({ gameName: "Crazy Eights", minPlayers: 2, maxPlayers: 6 });
+  GameMP.onReady(function(seat, count){
+    try{ac()&&ac().resume();}catch(e){}
+    onSeat = seat;
+    onCount = count;
+    mode = "online";
+    // Host (seat 0) generates the seed and tells everyone to deal.
+    if(seat === 0){ onStartFresh(); }
+    else { setMsg("Waiting for the deal…"); }
+  });
+  GameMP.onMove(function(m){
+    // onReady already flipped us into online mode before any move can arrive.
+    if(m.action === "start"){
+      onBeginMatch(m.seed);
+    } else if(m.action === "play"){
+      onApplyPlay(m.seat, m.card, m.declaredSuit || null);
+    } else if(m.action === "draw"){
+      onApplyDraw(m.seat, m.card);
+    } else if(m.action === "pass"){
+      onApplyPass(m.seat);
+    } else if(m.action === "reshuffle"){
+      onApplyReshuffle(m.seed);
+      onRender();
+    }
+  });
+  GameMP.onReset(function(){
+    // Host pressed Play again → it will broadcast a fresh "start" deal next.
+    elWinOverlay.classList.remove("show");
+    setMsg("New deal coming…");
+  });
+  GameMP.onPeerLeft(function(){
+    // No authoritative server: a drop breaks the deterministic turn order, so end
+    // the match cleanly rather than stall.
+    if(mode !== "online" || onOver) return;
+    onOver = true;
+    onRender();
+    elWinTitle.textContent = "Player left";
+    elWinText.textContent = "Someone disconnected, so this match can't continue. Start a new online game to play again.";
+    var wb = document.getElementById("winNewBtn");
+    wb.textContent = "New game";
+    wb.style.display = "";
+    elWinOverlay.classList.add("show");
+  });
+
+  // Online play & rematch hooks layered onto the existing buttons/pile. These
+  // short-circuit when not in online mode so local/AI behavior is unchanged.
+  elStockPile.addEventListener("click", function(){ if(mode === "online") onDrawNet(); });
+  document.getElementById("winNewBtn").addEventListener("click", function(){
+    if(mode !== "online") return; // local handler already wired below/above
+    if(onPeerLeftPending()){ GameMP.openCreate(); return; }
+    if(onSeat === 0){
+      GameMP.sendReset();
+      onStartFresh();
+    }
+  });
+  function onPeerLeftPending(){ return mode === "online" && onOver && elWinTitle.textContent === "Player left"; }
+
+  // Deal an initial (default 'ai') game behind the picker, then ask for a mode.
+  newGame();
+  showModeSelect();
+})();
+</script>
+</body>
+</html>

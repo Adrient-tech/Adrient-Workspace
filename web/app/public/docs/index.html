@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Adrient Workspace — Documentation</title>
+<meta name="description" content="A self-hosted, multi-org workspace platform: mail, drive, calendar, docs, sheets, meet, telephony and more. Installable and offline-capable." />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<meta name="theme-color" content="#126C5A" />
+<style>
+  :root{
+    --green:#126C5A; --green-d:#2f5a3c; --ink:#1b241e; --muted:#5b6b60;
+    --bg:#f5f7f2; --card:#ffffff; --line:#e4e9e0; --accent:#6741d9;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  a{color:var(--green);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  header.hero{background:linear-gradient(160deg,var(--green),var(--green-d));color:#fff;
+    padding:56px 0 40px;}
+  .hero h1{margin:0 0 8px;font-size:34px;letter-spacing:-.5px}
+  .hero p{margin:0;font-size:18px;opacity:.92;max-width:640px}
+  .badge{display:inline-block;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);
+    border-radius:999px;padding:3px 12px;font-size:13px;margin-bottom:16px}
+  .cta{margin-top:22px}
+  .cta a{display:inline-block;background:#fff;color:var(--green-d);font-weight:600;
+    border-radius:10px;padding:10px 18px;margin:0 8px 8px 0}
+  .cta a.ghost{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5)}
+  section{padding:40px 0;border-bottom:1px solid var(--line)}
+  section h2{font-size:24px;margin:0 0 6px;letter-spacing:-.3px}
+  section .lead{color:var(--muted);margin:0 0 22px;max-width:680px}
+  .shot{border:1px solid var(--line);border-radius:14px;overflow:hidden;
+    box-shadow:0 8px 30px rgba(31,42,32,.10);margin:8px 0 4px;background:#fff}
+  .shot img{display:block;width:100%}
+  .shot figcaption{font-size:13px;color:var(--muted);padding:10px 14px;border-top:1px solid var(--line)}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+  .gallery{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));margin-top:8px}
+  .gallery .shot{margin:0}
+  .gallery .shot img{aspect-ratio:16/10;object-fit:cover;object-position:top}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  a.card{display:block;text-decoration:none;color:inherit;transition:border-color .15s,box-shadow .15s}
+  a.card:hover{text-decoration:none;border-color:var(--green);box-shadow:0 4px 16px rgba(31,42,32,.08)}
+  a.card h3 .arw{color:var(--muted);font-weight:400;float:right}
+  .card h3{margin:0 0 4px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .card p{margin:0;font-size:14px;color:var(--muted)}
+  .tag{font-size:11px;font-weight:600;border-radius:999px;padding:1px 8px;vertical-align:middle}
+  .tag.soon{background:#fdecc8;color:#92600a}
+  .tag.new{background:#dcf0e2;color:var(--green-d)}
+  .cat{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--green);
+    font-weight:700;margin:24px 0 10px}
+  ul.feat{margin:0;padding-left:18px}
+  ul.feat li{margin:6px 0}
+  ul.feat li b{color:var(--ink)}
+  .roadmap li{margin:8px 0}
+  .grow{background:linear-gradient(160deg,#eef6f0,#e3f0e7);border:1px solid #cfe5d6;border-radius:16px;
+    padding:24px 22px;text-align:center;margin:6px 0}
+  .grow h2{margin:0 0 6px}
+  .grow p{margin:0 auto 14px;max-width:560px;color:#3a4a40}
+  .grow .gbtn{display:inline-block;background:var(--green);color:#fff;font-weight:600;border-radius:10px;
+    padding:11px 20px;margin:0 6px 8px}
+  .grow .gbtn.ghost{background:#fff;color:var(--green-d);border:1px solid #cfe5d6}
+  nav.toc{position:sticky;top:0;background:rgba(245,247,242,.92);backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--line);z-index:5}
+  nav.toc .wrap{display:flex;gap:18px;overflow-x:auto;padding:12px 20px;font-size:14px;white-space:nowrap}
+  footer{padding:30px 0 60px;color:var(--muted);font-size:13px}
+  @media(max-width:560px){.hero h1{font-size:27px}.hero p{font-size:16px}}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="badge">Self-hosted · multi-org · open</span>
+    <h1>Adrient Workspace</h1>
+    <p>A self-hosted, multi-org workspace platform — your mail, files, calendar, docs,
+       meetings, phone system and more, all in one place that you run and own.</p>
+    <div class="cta">
+      <a href="https://workspace.adrient.com/">Open the app →</a>
+      <a class="ghost" href="/docs/install.html">Install / self-host</a>
+      <a class="ghost" href="#screenshots">See screenshots</a>
+      <a class="ghost" href="https://adrient.com/open-source/adrient-workspace">Source code</a>
+    </div>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="wrap">
+    <a href="#overview">Overview</a>
+    <a href="/docs/install.html">Install</a>
+    <a href="#screenshots">Screenshots</a>
+    <a href="#apps">Apps</a>
+    <a href="#grow">Request a feature</a>
+    <a href="#recent">What's new</a>
+    <a href="#pwa">Install / Offline</a>
+    <a href="#admin">Admin</a>
+    <a href="#roadmap">Roadmap</a>
+  </div>
+</nav>
+
+<section id="overview">
+  <div class="wrap">
+    <h2>Overview</h2>
+    <p class="lead">Adrient Workspace bundles the everyday tools a team needs into a single
+      self-hosted suite. Sign in once and everything — files, mail, calendar, real-time
+      docs, video meetings, even a phone system — is a click away from the launcher.</p>
+    <figure class="shot">
+      <img src="dashboard.png" alt="The Workspace app launcher showing all available apps" />
+      <figcaption>The app launcher — every tool one click away.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="screenshots">
+  <div class="wrap">
+    <h2>Screenshots</h2>
+    <p class="lead">Live captures of the actual apps — not mockups. A few highlights;
+      there's a full per-service gallery (desktop + mobile, every app) in the
+      <a href="https://adrient.com/docs/adrient-workspace/docs/services">repo docs</a>.</p>
+    <div class="gallery">
+      <figure class="shot"><img loading="lazy" src="shots/drive.png" alt="Drive — files and app launcher" /><figcaption>Drive — files &amp; the app launcher</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/mail.png" alt="Mail — webmail inbox" /><figcaption>Mail — inbox, threads, labels</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/calendar.png" alt="Calendar" /><figcaption>Calendar — events &amp; meetings</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/sheets.png" alt="Sheets spreadsheet" /><figcaption>Sheets — spreadsheets &amp; formulas</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/docs.png" alt="Docs editor" /><figcaption>Docs — real-time rich text</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/slides.png" alt="Slides" /><figcaption>Slides — decks &amp; presenting</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/photos.png" alt="Photos library" /><figcaption>Photos — your photo library</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/chat.png" alt="Chat" /><figcaption>Chat — channels &amp; DMs</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/video.png" alt="Video" /><figcaption>Video — library &amp; streaming</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/music.png" alt="Music" /><figcaption>Music — stream your collection</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/tickets.png" alt="Tickets" /><figcaption>Tickets — helpdesk &amp; public intake</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/meet.png" alt="Meet" /><figcaption>Meet — WebRTC video meetings</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/whiteboard.png" alt="Whiteboard" /><figcaption>Whiteboard — collaborative canvas</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/contacts.png" alt="Contacts" /><figcaption>Contacts — shared address book</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/books.png" alt="Books" /><figcaption>Books — e-book library</figcaption></figure>
+      <figure class="shot"><img loading="lazy" src="shots/admin.png" alt="Admin console" /><figcaption>Admin — org console &amp; audit</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="apps">
+  <div class="wrap">
+    <h2>Apps</h2>
+    <p class="lead">Each app works on its own and together with the rest. Single sign-on,
+      shared contacts, and cross-app sharing tie them into one workspace.
+      <strong>Click any app for its documentation.</strong></p>
+
+    <div class="cat">Productivity</div>
+    <div class="grid">
+      <a class="card" href="/docs/docs.html"><h3>📄 Docs <span class="arw">›</span></h3><p>Collaborative rich-text documents, edited in real time.</p></a>
+      <a class="card" href="/docs/sheets.html"><h3>📊 Sheets <span class="arw">›</span></h3><p>Spreadsheets with 245+ functions, dynamic-array spill, data validation, conditional formatting, charts and pivot tables.</p></a>
+      <a class="card" href="/docs/slides.html"><h3>🖼️ Slides <span class="arw">›</span></h3><p>Build and present slide decks.</p></a>
+      <a class="card" href="/docs/calendar.html"><h3>📅 Calendar <span class="arw">›</span></h3><p>Events, recurrence, attendees and reminders — attach a Meet video meeting to any event.</p></a>
+      <a class="card" href="/docs/tasks.html"><h3>✅ Tasks <span class="arw">›</span></h3><p>Personal and shared to-do lists.</p></a>
+      <a class="card" href="/docs/keep.html"><h3>💡 Keep <span class="arw">›</span></h3><p>Quick notes, pinned and shareable.</p></a>
+      <a class="card" href="/docs/forms.html"><h3>📝 Forms <span class="arw">›</span></h3><p>Build forms and collect responses.</p></a>
+      <a class="card" href="/docs/projects.html"><h3>📐 Projects <span class="arw">›</span></h3><p>Kanban boards for tracking work.</p></a>
+      <a class="card" href="/docs/tickets.html"><h3>🎫 Tickets <span class="arw">›</span></h3><p>Jira-like helpdesk with a public submission portal.</p></a>
+    </div>
+
+    <div class="cat">Communication</div>
+    <div class="grid">
+      <a class="card" href="/docs/mail.html"><h3>✉️ Mail <span class="arw">›</span></h3><p>A full self-hosted mailbox — threads, attachments, search.</p></a>
+      <a class="card" href="/docs/chat.html"><h3>💬 Chat <span class="arw">›</span></h3><p>Team channels and direct messages.</p></a>
+      <a class="card" href="/docs/meet.html"><h3>🎥 Meet <span class="arw">›</span></h3><p>Peer-to-peer WebRTC video meetings — your video goes straight to other participants, no server relay.</p></a>
+      <a class="card" href="/docs/telephony.html"><h3>☎️ Telephony <span class="arw">›</span></h3><p>A VoIP softphone plus Google-Voice-style texting, and a 3CX-style PBX admin console (admins only).</p></a>
+      <a class="card" href="/docs/contacts.html"><h3>👥 Contacts <span class="arw">›</span></h3><p>Shared address book that also powers the phone directory.</p></a>
+      <a class="card" href="/docs/groups.html"><h3>📇 Groups <span class="arw">›</span></h3><p>Mailing lists and team groups.</p></a>
+    </div>
+
+    <div class="cat">Files &amp; media</div>
+    <div class="grid">
+      <a class="card" href="/docs/drive.html"><h3>📁 Drive <span class="arw">›</span></h3><p>File storage and sharing with previews, versions, and EXIF metadata (camera, date, GPS) on photos.</p></a>
+      <div class="card"><h3>📕 PDF</h3><p>View, edit, annotate, fill and sign PDFs.</p></div>
+      <a class="card" href="/docs/photos.html"><h3>🌄 Photos <span class="arw">›</span></h3><p>Photo library with albums.</p></a>
+      <a class="card" href="/docs/books.html"><h3>📚 Books <span class="arw">›</span></h3><p>E-book library — EPUB, PDF, MOBI, CBZ and TXT.</p></a>
+      <a class="card" href="/docs/music.html"><h3>🎵 Music <span class="arw">›</span></h3><p>Stream your music collection.</p></a>
+      <a class="card" href="/docs/video.html"><h3>🎬 Video <span class="arw">›</span></h3><p>Video library and streaming.</p></a>
+      <a class="card" href="/docs/live.html"><h3>📺 Live <span class="arw">›</span></h3><p>Live streaming.</p></a>
+    </div>
+
+    <div class="cat">Collaboration &amp; build</div>
+    <div class="grid">
+      <a class="card" href="/docs/whiteboard.html"><h3>🎨 Whiteboard <span class="arw">›</span></h3><p>Real-time collaborative drawing.</p></a>
+      <div class="card"><h3>🧩 Assemble</h3><p>Spatial collaboration spaces — single sign-on with your workspace, plus guest access.</p></div>
+      <a class="card" href="/docs/sites.html"><h3>🌐 Sites <span class="arw">›</span></h3><p>Build and publish simple websites.</p></a>
+      <div class="card"><h3>🤝 CRM</h3><p>Customer relationship management, powered by Twenty CRM (open source).</p></div>
+      <div class="card"><h3>🛰️ Lightsky</h3><p>A personal dashboard with calendar sync and more.</p></div>
+      <div class="card"><h3>🐙 Git</h3><p>Source-code hosting (Forgejo).</p></div>
+    </div>
+
+    <div class="cat">Admin &amp; infrastructure</div>
+    <div class="grid">
+      <a class="card" href="/docs/admin.html"><h3>🛡️ Admin <span class="arw">›</span></h3><p>Org administration — users, service enablement, audit logs (with IP + geolocation), and API rate limiting.</p></a>
+      <a class="card" href="/docs/access.html"><h3>🔑 Access <span class="arw">›</span></h3><p>Per-resource sharing and permissions.</p></a>
+      <a class="card" href="/docs/vpn.html"><h3>🔒 VPN <span class="arw">›</span></h3><p>Tailscale-based private network access.</p></a>
+      <a class="card" href="/docs/cloudimport.html"><h3>☁️ Cloud Import <span class="arw">›</span></h3><p>Import your data from Google and other clouds.</p></a>
+      <a class="card" href="/docs/orgsync.html"><h3>🔁 Org Sync <span class="arw">›</span></h3><p>Cross-org Drive &amp; Contacts transfer (encrypted friend-backups coming soon).</p></a>
+      <a class="card" href="/docs/flare.html"><h3>🔥 Flare <span class="tag soon">coming soon</span></h3><p>An open Cloudflare-style edge: secure tunnels (a cloudflared clone) + DNS management, and WireGuard mesh tunnels to sync multiple self-hosted platforms together.</p></a>
+    </div>
+
+    <div class="cat">Fun</div>
+    <div class="grid">
+      <a class="card" href="/docs/games.html"><h3>🎮 Games <span class="arw">›</span></h3><p>A hub of 100+ arcade, puzzle, board and card games — installable and playable offline — plus native game <b>ports</b> (Mighty Mike, Maelstrom, Bolo) with online multiplayer and on-screen touch controls.</p></a>
+    </div>
+  </div>
+</section>
+
+<section id="grow">
+  <div class="wrap">
+    <div class="grow">
+      <div style="font-size:34px;line-height:1">🌱</div>
+      <h2>Missing something? Let's get it built.</h2>
+      <p>Adrient is open source and built in the open — and it grows from what people
+         ask for. If an app is missing a feature, a doc is unclear, or you hit a bug,
+         <strong>just open an issue</strong> and we'll work on growing it in. Pull
+         requests are welcome too. No request is too small.</p>
+      <a class="gbtn" href="https://adrient.com/support">🐛 Open an issue</a>
+      <a class="gbtn ghost" href="https://adrient.com/open-source/adrient-workspace">Source code</a>
+      <a class="gbtn ghost" href="https://adrient.com/docs/adrient-workspace/CONTRIBUTING.md">How to contribute</a>
+    </div>
+  </div>
+</section>
+
+<section id="recent">
+  <div class="wrap">
+    <h2>What's new <span class="tag new">recent</span></h2>
+    <p class="lead">A selection of recently shipped improvements.</p>
+    <ul class="feat">
+      <li><b>Installable + offline PWA.</b> The whole suite installs to your phone's home screen and launches offline (cached app shell).</li>
+      <li><b>Meet in Calendar.</b> Add a video meeting to a calendar event (new or existing). When the first person joins, invited attendees get a "Meeting started" alert.</li>
+      <li><b>Drive photo metadata.</b> Image previews show dimensions, camera, lens, date taken, exposure and GPS location (with a map link) read from EXIF.</li>
+      <li><b>Sheets, supercharged.</b> A 245-function engine with dynamic-array spill, data validation, color-scale &amp; data-bar conditional formatting, charts and pivot tables.</li>
+      <li><b>Telephony.</b> A softphone and texting UI, with a full 3CX-style PBX administration console gated to admins. Working call recordings and a live activity log.</li>
+      <li><b>Native game ports.</b> Mighty Mike (a remake of Pangea's Power Pete) compiled to WebAssembly with a floating touch joystick and a D-Pad/Joystick switch.</li>
+      <li><b>Security &amp; ops.</b> Demo-account audit logging with IP + geolocation, configurable API rate limiting, and proper asset caching for fast, offline-friendly loads.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="pwa">
+  <div class="wrap">
+    <h2>Install &amp; offline</h2>
+    <p class="lead">Workspace is a Progressive Web App, so it installs like a native app and
+      keeps working without a connection.</p>
+    <ul class="feat">
+      <li><b>Install on a phone.</b> Open <a href="https://workspace.adrient.com/">workspace.adrient.com</a> in your browser → menu → <i>Add to Home Screen</i>. It installs as "Workspace" with its own icon and opens full-screen.</li>
+      <li><b>Offline.</b> Once installed, the app launches and renders even with no connection — the interface and its assets are cached on the device. (Live data such as new mail still needs a connection.)</li>
+      <li><b>Games offline.</b> The Games hub and game ports cache their files, so they play with no signal.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="admin">
+  <div class="wrap">
+    <h2>For administrators</h2>
+    <p class="lead">Run the platform with visibility and control.</p>
+    <ul class="feat">
+      <li><b>Users &amp; services.</b> Add users and enable or disable individual apps per org.</li>
+      <li><b>Audit logs.</b> Every change is recorded with the actor's email, IP address and resolved geolocation — searchable by email and service.</li>
+      <li><b>Rate limiting.</b> Sensible API rate limits with stricter limits on auth endpoints, all configurable.</li>
+      <li><b>Telephony admin.</b> A complete PBX console (extensions, ring groups, queues, routes, recordings, reports) — visible only to admins.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="roadmap">
+  <div class="wrap">
+    <h2>Roadmap</h2>
+    <p class="lead">Things on the way.</p>
+    <ul class="feat roadmap">
+      <li><b>Org Sync.</b> Cross-organisation directory synchronisation.</li>
+      <li><b>Self-hosted PBX backend.</b> An Asterisk-based phone system behind the Telephony admin console.</li>
+      <li><b>Offline data.</b> Cached, syncable data per app (read your last-synced mail and files offline), beyond today's offline app shell.</li>
+      <li><b>Background notifications.</b> Server-side Web Push so alerts reach you even when the app is closed.</li>
+      <li><b>More game ports</b> and continued polish across every app.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Workspace · self-hosted workspace platform · <b>forever free, MIT licensed</b>.<br />
+    Open source — <a href="https://adrient.com/open-source/adrient-workspace">source on adrient.com</a> ·
+    <a href="https://adrient.com/support">report an issue</a> ·
+    <a href="https://adrient.com/docs/adrient-workspace/CONTRIBUTING.md">contribute</a> ·
+    <a href="https://workspace.adrient.com/">open the app</a>.
+    <br />Contributions and issues are very welcome.
+  </div>
+</footer>
+
+</body>
+</html>

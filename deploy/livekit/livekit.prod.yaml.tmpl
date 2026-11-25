@@ -1,0 +1,21 @@
+# Production LiveKit SFU (runs with host networking). install.sh renders this
+# into $INSTALL_DIR/livekit/livekit.yaml (mode 600, never in git) with the
+# generated API key/secret.
+port: 7880              # signalling: reached by Caddy/adrient via the docker host gateway.
+                        # Do NOT open 7880 on the firewall; clients use wss://rtc.<domain>.
+log_level: info
+rtc:
+  tcp_port: 7881        # ICE/TCP fallback: open 7881/tcp
+  port_range_start: 50000
+  port_range_end: 50999 # media: open 50000-50999/udp (~1 port per participant)
+  use_external_ip: true
+turn:
+  enabled: true         # built-in TURN for strict NATs: open 3478/udp
+  udp_port: 3478
+  # TURN/TLS (5349/tcp) is optional: add `domain`, `tls_port`, `cert_file`,
+  # `key_file` once you have a certificate for that name (docs/install-server.md).
+# Redis is required for Egress (recording) to find the SFU. Loopback only.
+redis:
+  address: 127.0.0.1:6390
+keys:
+  @@KEY@@: @@SECRET@@

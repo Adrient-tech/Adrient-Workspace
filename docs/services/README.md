@@ -1,0 +1,83 @@
+# Adrient Workspace — Visual Service Documentation
+
+Auto-generated visual documentation for every app and service in **adrient-workspace**. Every screenshot below was **live-captured** with Playwright (Chromium) — none are mockups.
+
+> Generated on 2026-06-13 from a local run of the full stack.
+
+## Open source · contributions & issues welcome 🙌
+
+Adrient Workspace is **forever free, [MIT licensed](../../LICENSE)**. **Contributions
+and issues are genuinely appreciated.**
+
+- **Source code:** **https://adrient.com/open-source/adrient-workspace**
+- **Report a bug / request a feature:** [open an issue](https://adrient.com/support)
+- **Contribute code:** fork the mirror and open a PR — see [CONTRIBUTING.md](../../CONTRIBUTING.md)
+
+## Capture status (honest)
+
+### Tier 1 — Static arcade games — FULLY CAPTURED
+- **109 / 109 games** rendered and screenshot at desktop + mobile (218 PNGs).
+- Served from `web/app/public` via a local threaded HTTP server on port **8099** (non-colliding).
+- Includes the three native ports: **Bolo** (Orona), **Mighty Mike** (Power Pete), **Maelstrom** (SDL → WASM) — all rendered actual game frames.
+- See **[games.md](games.md)** for the full gallery.
+
+### Tier 2 — Full-stack apps — MOSTLY CAPTURED (29 / 31 routes; 2 blocked)
+Brought up the whole stack with `process-compose` (postgres, Zitadel, RustFS, web-build, the Go backend serving the SPA + API at `http://workspace.localtest.me:8080`, plus Twenty CRM). Authenticated through **Zitadel SSO** (the in-app password login returns 503 in dev — see notes) as `admin@adrient.localtest.me`, persisted the session, and screenshot every route.
+
+**Rendered live & authenticated (29):** drive, mail, calendar, docs, sheets, slides, photos, chat, music, tasks, video, tickets, contacts, meet, whiteboard, forms, keep, projects, sites, books, live, groups, telephony, orgsync, cloudimport, vpn, access, settings, admin.
+
+**Failed / blocked (2):**
+- **pdf** — the PDF app's backend never started: `process-compose` runs `cd $PROJECT_ROOT/pdf/backend`, but that directory does not exist in this checkout (only `pdf/frontend`). So `pdf-backend` (:8085) and `pdf-frontend` (:5173) are both down, and the in-app `/pdf/` route rendered blank. No screenshot kept.
+- **crm (Twenty)** — Twenty's container started cleanly ("Nest application successfully started"), but it uses Docker `--network host` to bind port **3000**, which was **already held by a pre-existing local `node` process** (an unrelated Bolo/Orona dev server). The CRM proxy at `crm.workspace.localtest.me:8080` therefore served that other app, not Twenty. Left the foreign process alone; no valid CRM screenshot kept.
+
+### Stack bring-up notes
+- `nix run .#dev` **fails standalone**: the dev app does `cd "${PROJECT_ROOT:-$PWD}"` but never exports `PROJECT_ROOT`/`PG*` (those are only set by the devshell `shellHook`). Run standalone, `$PROJECT_ROOT` is empty, so RustFS mounts `/data` (root) and dies with `Permission denied`, and Docker volumes get bogus `/deploy/...` paths. **Fix used:** run `process-compose` *inside* `nix develop` so the env is exported.
+- In-app **password login → 503**: `PasswordLogin` requires a Zitadel service-token client (`ADRIENT_ZITADEL_SERVICE_TOKEN`), which is empty in the dev compose, so `h.zitadel == nil`. Demo login is disabled too. **SSO/OIDC is the only working login path** in this config.
+- `/docs/` is shadowed by a static product site (`web/app/public/docs/index.html`) on direct load; the real Docs app was captured via in-SPA client-side navigation.
+
+## Service index
+
+| Service | Description | Page |
+|---|---|---|
+| **drive** | App launcher home + files (landing page after sign-in) | [drive.md](drive.md) |
+| **mail** | Webmail — inbox, labels, embedded chat rail | [mail.md](mail.md) |
+| **calendar** | Week/month calendar with multiple calendars & events | [calendar.md](calendar.md) |
+| **docs** | Collaborative rich-text documents + templates | [docs.md](docs.md) |
+| **sheets** | Collaborative spreadsheets + templates | [sheets.md](sheets.md) |
+| **slides** | Presentation editor & deck library | [slides.md](slides.md) |
+| **photos** | Photo library (object-storage backed) | [photos.md](photos.md) |
+| **chat** | Real-time team chat — channels & DMs | [chat.md](chat.md) |
+| **music** | Music library, player & radio | [music.md](music.md) |
+| **tasks** | Personal task lists, integrated with Calendar | [tasks.md](tasks.md) |
+| **video** | YouTube-style video product | [video.md](video.md) |
+| **tickets** | Helpdesk ticketing (+ public submit portal) | [tickets.md](tickets.md) |
+| **contacts** | Address book for people & orgs | [contacts.md](contacts.md) |
+| **meet** | WebRTC video meetings lobby | [meet.md](meet.md) |
+| **whiteboard** | Collaborative infinite canvas | [whiteboard.md](whiteboard.md) |
+| **forms** | Survey / form builder | [forms.md](forms.md) |
+| **keep** | Notes & checklists | [keep.md](keep.md) |
+| **projects** | Project / issue tracking boards | [projects.md](projects.md) |
+| **sites** | Website builder | [sites.md](sites.md) |
+| **books** | E-book reading library | [books.md](books.md) |
+| **live** | Live streaming (RTMP/HLS/WebRTC) | [live.md](live.md) |
+| **groups** | Mailing lists & discussion groups | [groups.md](groups.md) |
+| **telephony** | Cloud phone system / softphone | [telephony.md](telephony.md) |
+| **orgsync** | Directory synchronization | [orgsync.md](orgsync.md) |
+| **cloudimport** | Import files from external clouds | [cloudimport.md](cloudimport.md) |
+| **vpn** | VPN / private network access | [vpn.md](vpn.md) |
+| **access** | Access control & permissions | [access.md](access.md) |
+| **settings** | Per-user workspace settings | [settings.md](settings.md) |
+| **admin** | Org admin console (members, services, audit, security) | [admin.md](admin.md) |
+| **games** | 109 static browser games (arcade/puzzle/card/board/word/casino/kids + 3 native ports) | [games.md](games.md) |
+| **pdf** | PDF editor & e-sign (reverse-proxied) | _blocked — backend dir missing_ |
+| **crm** | Twenty CRM (Host-proxied subdomain) | _blocked — port 3000 collision_ |
+| **homeassistant** | Home Assistant in Adrient (in-app view of the per-org URL; optional Helm-deployed instance) and Adrient in HA (`adrient` integration, token preset, notify push) | [homeassistant.md](homeassistant.md) |
+
+---
+
+**Totals:** 109 games (×2 viewports) + 29 app routes (desktop) + 10 app mobile shots. Screenshots live under [`screenshots/`](screenshots/) (apps) and [`screenshots/games/`](screenshots/games/).
+
+## Demo data
+`adrient-admin seed-demo [--org slug] [--remove] [--json]` fills an organisation with fictional data for screenshots: 25 employees in 5 departments with leave, attendance punches and one locked payroll run, 3 jobs with 12 candidates, a chart of accounts with 3 months of invoices, payments, bills, expenses and bank lines, 150 products in 2 locations with purchase orders, 40 CRM companies and contacts with 30 deals, 3 projects with issues, a task list, 10 calendar events, and a few Docs, Sheets and Slides files. Demo e-mail addresses end in `.example`. It is idempotent (a second run does nothing) and `--remove` deletes exactly the rows it recorded (`adrient.demo_seed_rows`). Run it while nobody else is working in that organisation. Seed steps are versioned: a re-run on an older demo org adds only the missing steps, and `--remove --from-version 2` removes just the newer content.
+
+Step 2 (screenshot content) adds: the admin linked to an HR employee ("Asha Menon, Head of Operations") with a team, leave, payslip; nine named teammates (accounts that cannot sign in); 21 mail threads in the admin's mailbox (rows inserted through the mail repository, nothing is sent); 9 chat channels and DMs with replies and reactions (through the chat store); Drive folders with files (needs `ADRIENT_RUSTFS_*`, else folders only); calendar events this week with Meet rooms attached; project issues with assignees and dates; 20 helpdesk tickets with SLAs; 3 forms with responses; 8 Keep notes; 60 contacts; a financial year of invoices; 3 slide decks, 4 sheets (formulas, conditional formats, chart, pivot) and 4 Docs. Docs bodies keep live-edit state, so `node scripts/seed-docs.mjs` types them in through a real browser. `node scripts/screenshots.mjs` takes the product-tour JPEGs into `docs/screenshots` (login from `ADRIENT_LOGIN` / `ADRIENT_PASSWORD`, see `scripts/lib-browser.mjs`).

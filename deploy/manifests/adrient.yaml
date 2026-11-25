@@ -1,0 +1,1951 @@
+---
+# Source: adrient/templates/zitadel-provision.yaml
+# RBAC for the provisioning Job to create/patch the OIDC client secret.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: adrient-zitadel-provision
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel-provision
+---
+# Source: adrient/templates/oidc-secret.yaml
+# Bundled OIDC: seed a placeholder secret so adrient's secretKeyRef resolves on
+# first boot. The zitadel-provision Job overwrites client-id/client-secret with
+# the real Zitadel-issued values once Zitadel is up. adrient's readiness probe
+# keeps the pod out of rotation until OIDC is actually configured.
+#
+# helm.sh/resource-policy keeps it from being clobbered on upgrade; the Job
+# owns the real values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adrient-zitadel-secret
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: oidc
+  annotations:
+    "helm.sh/resource-policy": keep
+type: Opaque
+stringData:
+  client-id: "CHANGE_ME"
+  client-secret: "CHANGE_ME"
+---
+# Source: adrient/templates/postgres.yaml
+# Bundled Postgres — a plain StatefulSet (NOT CNPG, so no operator required).
+# Creates the adrient DB plus any postgres.extraDatabases (zitadel, pdf).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adrient-postgres
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: postgres
+type: Opaque
+stringData:
+  POSTGRES_USER: "adrient"
+  POSTGRES_PASSWORD: "DevPassword!1"
+  POSTGRES_DB: "adrient"
+---
+# Source: adrient/templates/rustfs.yaml
+# rustfs root credentials (also what adrient + the pdf app authenticate with).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adrient-rustfs
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: rustfs
+  annotations:
+    # Survive `helm uninstall` so a reinstall on the retained PVC keeps working.
+    "helm.sh/resource-policy": keep
+type: Opaque
+data:
+  access_key: "Z3Jvd24="
+  secret_key: "RGV2UGFzc3dvcmQhMQ=="
+---
+# Source: adrient/templates/s3-secret.yaml
+# S3 connection secret adrient reads (mirrors the homelab adrient-s3 secret shape).
+# endpoint/bucket always live here. The credentials live in the secret named by
+# adrient.s3CredsSecret: {release}-rustfs for the bundled rustfs (generated once),
+# rustfs.existingSecret, or — for an external S3 endpoint — this secret, from
+# rustfs.external.accessKey/secretKey (falling back to the 0.1.x minio keys).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adrient-s3
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: s3
+type: Opaque
+stringData:
+  endpoint: "http://adrient-rustfs.adrient.svc.cluster.local:9100"
+  bucket: "adrient-default"
+---
+# Source: adrient/templates/zitadel.yaml
+# Bundled Zitadel (OIDC provider). One Deployment running `start-from-init`,
+# which runs init + setup (first-instance admin + bootstrap service account +
+# PAT) and then starts the server. The bootstrap PAT is written to a shared
+# emptyDir-backed file that the provisioning Job reads (see zitadel-provision).
+#
+# Zitadel uses the bundled Postgres `zitadel` database.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: adrient-zitadel-config
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel
+type: Opaque
+stringData:
+  ZITADEL_MASTERKEY: "MasterkeyNeedsToHave32Characters"
+  # Database wiring -> bundled Postgres.
+  ZITADEL_DATABASE_POSTGRES_HOST: "adrient-postgres.adrient.svc.cluster.local"
+  ZITADEL_DATABASE_POSTGRES_PORT: "5432"
+  ZITADEL_DATABASE_POSTGRES_DATABASE: "zitadel"
+  ZITADEL_DATABASE_POSTGRES_USER_USERNAME: "adrient"
+  ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: "DevPassword!1"
+  ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: "disable"
+  ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: "adrient"
+  ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: "DevPassword!1"
+  ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: "disable"
+  # External access config.
+  ZITADEL_EXTERNALDOMAIN: "adrient-zitadel.adrient.svc.cluster.local"
+  ZITADEL_EXTERNALPORT: "8080"
+  ZITADEL_EXTERNALSECURE: "false"
+  ZITADEL_TLS_ENABLED: "false"
+  ZITADEL_PORT: "8080"
+  # First-instance admin + machine bootstrap (env wins over steps merge).
+  ZITADEL_FIRSTINSTANCE_PATPATH: "/shared/bootstrap-pat.txt"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: "admin"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_FIRSTNAME: "Adrient"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_LASTNAME: "Admin"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_ADDRESS: "admin@adrient.localtest.me"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_EMAIL_VERIFIED: "true"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: "DevPassword!1"
+  ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: "false"
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME: "bootstrap"
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME: "Bootstrap SA"
+  ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE: "2099-01-01T00:00:00Z"
+---
+# Source: adrient/templates/homeassistant-seed.yaml
+# Home Assistant pod files (see homeassistant.yaml): the first-start config seed
+# (copied into /config only when missing, never overwritten, so editing
+# homeAssistant.trustedProxies later does not touch an existing install) plus
+# the onboarding and integration-fetch scripts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adrient-homeassistant-seed
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: homeassistant
+data:
+  configuration.yaml: |
+    # Seeded by the adrient Helm chart on first start. The chart never overwrites
+    # this file: edit it freely (or through the HA UI).
+    default_config:
+
+    # HA sits behind the cluster's ingress / gateway, so trust X-Forwarded-For
+    # from these proxies (anything else sending the header is rejected).
+    http:
+      use_x_forwarded_for: true
+      trusted_proxies:
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+        - "192.168.0.0/16"
+        - "fd00::/8"
+      # Let Adrient show HA inside its /homeassistant page (an iframe). Trade-off:
+      # without X-Frame-Options any site can frame this HA (clickjacking). Set
+      # this to true (or remove the line) to forbid framing again.
+      use_x_frame_options: false
+
+    automation: !include automations.yaml
+    script: !include scripts.yaml
+    scene: !include scenes.yaml
+  automations.yaml: |
+    []
+  scripts.yaml: ""
+  scenes.yaml: ""
+  seed.sh: |
+    #!/bin/sh
+    # Copy each seed file into $CONFIG_DIR only if it doesn't exist yet.
+    set -eu
+    CONFIG_DIR="${CONFIG_DIR:-/config}"
+    SEED_DIR="${SEED_DIR:-/seed}"
+    mkdir -p "$CONFIG_DIR"
+    for f in configuration.yaml automations.yaml scripts.yaml scenes.yaml; do
+      if [ -e "$CONFIG_DIR/$f" ]; then
+        echo "keep existing $f"
+      else
+        cp "$SEED_DIR/$f" "$CONFIG_DIR/$f"
+        echo "seeded $f"
+      fi
+    done
+  onboard.py: |
+    #!/usr/bin/env python3
+    """Close Home Assistant's first-run onboarding window (adrient Helm chart).
+    
+    A fresh Home Assistant serves an onboarding page where the FIRST visitor
+    creates the owner account. On a public install that is a takeover risk, so the
+    chart runs this script as a sidecar in the HA pod, against HA on localhost:
+    
+      1. wait for HA's HTTP server;
+      2. if onboarding's "user" step is open, create the owner from the
+         <release>-homeassistant-owner Secret (POST /api/onboarding/users);
+      3. finish the remaining steps (core_config, analytics, integration) with the
+         owner's token - obtained from the user step's auth code, or by logging in
+         with the Secret's credentials if an earlier run stopped half-way;
+      4. keep re-checking, so a wiped /config/.storage is re-onboarded too;
+      5. on every pass, reconcile HA's HTTP config (reverse-proxy settings) over
+         the websocket API - see "HTTP config trial" below.
+    
+    Idempotent: once everything is in place a pass is one GET plus one websocket
+    read (``http/config``).
+    
+    HTTP config trial (HA 2026.9+): HA migrates configuration.yaml's ``http:``
+    block into .storage/http once, as a PENDING config. Unless an admin sends
+    ``http/config/promote`` within 5 minutes, HA reverts to the STABLE (default)
+    config, restarts, and ignores the YAML forever after - behind a reverse proxy
+    that means HTTP 400 for every request. So the sidecar, logged in as the
+    owner, reads ``http/config`` and:
+      * stable already matches the desired proxy settings  -> nothing;
+      * pending matches, has no error and is the running config -> promote it;
+      * otherwise -> ``http/config/configure`` with stable + the desired settings
+        (HA restarts into it as pending); a later pass promotes it.
+    Desired = use_x_forwarded_for: true, trusted_proxies = HTTP_TRUSTED_PROXIES,
+    use_x_frame_options = HTTP_USE_X_FRAME_OPTIONS. A pending config that failed
+    to apply (``apply_failed``) is not retried, and configure is rate-limited, so
+    a bad value can't restart-loop HA.
+    
+    ``onboard.py --check`` is the HA container's readiness probe: it exits 0 only
+    when the "user" step is done. Until then the pod is NotReady, so the Service
+    (and therefore the Ingress/HTTPRoute) sends it no traffic - nobody outside
+    the pod can reach the onboarding page in the moment before this script
+    creates the owner.
+    
+    Standard library only (runs on the Home Assistant image's python3).
+    
+    Environment:
+      HA_URL            default http://127.0.0.1:8123
+      OWNER_USERNAME    owner login          (required unless --check)
+      OWNER_PASSWORD    owner password       (required unless --check)
+      OWNER_NAME        display name         default "Administrator"
+      OWNER_LANGUAGE    UI language          default "en"
+      RECHECK_SECONDS   pause between passes default 60
+      HTTP_MANAGE       "false" disables the HTTP config reconcile  default true
+      HTTP_TRUSTED_PROXIES      comma-separated CIDRs   (required to manage)
+      HTTP_USE_X_FRAME_OPTIONS  "true"/"false"          default true
+    """
+    
+    from __future__ import annotations
+    
+    import base64
+    import ipaddress
+    import json
+    import os
+    import socket
+    import struct
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    
+    HA_URL = os.environ.get("HA_URL", "http://127.0.0.1:8123").rstrip("/")
+    CLIENT_ID = f"{HA_URL}/"
+    REDIRECT_URI = f"{HA_URL}/?auth_callback=1"
+    TIMEOUT = 10
+    
+    # Steps after "user", in the order HA's frontend completes them.
+    LATER_STEPS = ("core_config", "analytics", "integration")
+    
+    
+    def log(msg: str) -> None:
+        print(f"[ha-onboard] {msg}", flush=True)
+    
+    
+    class HTTPError(Exception):
+        def __init__(self, status: int, body: str) -> None:
+            super().__init__(f"HTTP {status}: {body[:300]}")
+            self.status = status
+    
+    
+    def request(method: str, path: str, *, json_body=None, form=None, token: str | None = None):
+        headers = {"Accept": "application/json"}
+        data = None
+        if json_body is not None:
+            data = json.dumps(json_body).encode()
+            headers["Content-Type"] = "application/json"
+        elif form is not None:
+            data = urllib.parse.urlencode(form).encode()
+            headers["Content-Type"] = "application/x-www-form-urlencoded"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(f"{HA_URL}{path}", data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+                raw = resp.read().decode() or "null"
+        except urllib.error.HTTPError as err:
+            raise HTTPError(err.code, err.read().decode(errors="replace")) from None
+        return json.loads(raw)
+    
+    
+    def onboarding_status() -> dict[str, bool] | None:
+        """{step: done}; None when HA has no onboarding API (nothing to do)."""
+        try:
+            steps = request("GET", "/api/onboarding")
+        except HTTPError as err:
+            if err.status == 404:
+                return None
+            raise
+        return {s["step"]: bool(s["done"]) for s in steps}
+    
+    
+    class Tokens:
+        """The owner's HA tokens, reused across passes.
+    
+        Logging in on every pass would add a refresh token to HA's auth store
+        each time, so keep one refresh token and renew the access token with it.
+        """
+    
+        def __init__(self) -> None:
+            self.access: str | None = None
+            self.refresh: str | None = None
+            self.expires = 0.0
+    
+        def store(self, tokens: dict) -> str:
+            self.access = tokens["access_token"]
+            self.refresh = tokens.get("refresh_token") or self.refresh
+            self.expires = time.monotonic() + float(tokens.get("expires_in", 1800)) - 60
+            return self.access
+    
+        def get(self, owner: dict[str, str]) -> str:
+            if self.access and time.monotonic() < self.expires:
+                return self.access
+            if self.refresh:
+                try:
+                    return self.store(
+                        request(
+                            "POST",
+                            "/auth/token",
+                            form={
+                                "grant_type": "refresh_token",
+                                "refresh_token": self.refresh,
+                                "client_id": CLIENT_ID,
+                            },
+                        )
+                    )
+                except HTTPError:
+                    self.refresh = None  # revoked / HA storage reset: log in again
+            return self.store(login_tokens(owner["username"], owner["password"]))
+    
+        def reset(self) -> None:
+            self.access, self.refresh, self.expires = None, None, 0.0
+    
+    
+    TOKENS = Tokens()
+    _SAID_NO_ONBOARDING = False
+    
+    
+    def exchange_code(code: str) -> str:
+        return TOKENS.store(
+            request(
+                "POST",
+                "/auth/token",
+                form={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID},
+            )
+        )
+    
+    
+    def login_tokens(username: str, password: str) -> dict:
+        """Owner tokens via the username/password login flow."""
+        flow = request(
+            "POST",
+            "/auth/login_flow",
+            json_body={
+                "client_id": CLIENT_ID,
+                "handler": ["homeassistant", None],
+                "redirect_uri": REDIRECT_URI,
+            },
+        )
+        result = request(
+            "POST",
+            f"/auth/login_flow/{flow['flow_id']}",
+            json_body={"client_id": CLIENT_ID, "username": username, "password": password},
+        )
+        if result.get("type") != "create_entry":
+            raise RuntimeError(
+                "owner login failed (was the owner's password changed in HA? "
+                "finishing onboarding and managing the HTTP config need the "
+                "credentials in the owner Secret)"
+            )
+        return request(
+            "POST",
+            "/auth/token",
+            form={"grant_type": "authorization_code", "code": result["result"], "client_id": CLIENT_ID},
+        )
+    
+    
+    # ----- minimal websocket client (stdlib; HA's /api/websocket) ---------------
+    
+    
+    class WebSocket:
+        """Just enough RFC 6455 for HA's JSON API over plain ws:// on localhost."""
+    
+        def __init__(self, url: str, timeout: float = TIMEOUT) -> None:
+            parsed = urllib.parse.urlsplit(url)
+            host, port = parsed.hostname or "127.0.0.1", parsed.port or 80
+            self.sock = socket.create_connection((host, port), timeout=timeout)
+            key = base64.b64encode(os.urandom(16)).decode()
+            self.sock.sendall(
+                (
+                    f"GET {parsed.path or '/'} HTTP/1.1\r\nHost: {host}:{port}\r\n"
+                    "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                    f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+                ).encode()
+            )
+            head = b""
+            while b"\r\n\r\n" not in head:
+                chunk = self.sock.recv(4096)
+                if not chunk:
+                    raise ConnectionError("websocket handshake: connection closed")
+                head += chunk
+            head, self.buf = head.split(b"\r\n\r\n", 1)
+            if not head.startswith(b"HTTP/1.1 101"):
+                raise ConnectionError(f"websocket handshake refused: {head.splitlines()[0]!r}")
+            self.next_id = 1
+    
+        def _read(self, n: int) -> bytes:
+            while len(self.buf) < n:
+                chunk = self.sock.recv(65536)
+                if not chunk:
+                    raise ConnectionError("websocket closed")
+                self.buf += chunk
+            out, self.buf = self.buf[:n], self.buf[n:]
+            return out
+    
+        def _send_frame(self, opcode: int, payload: bytes) -> None:
+            mask = os.urandom(4)
+            n = len(payload)
+            if n < 126:
+                header = struct.pack("!BB", 0x80 | opcode, 0x80 | n)
+            elif n < 65536:
+                header = struct.pack("!BBH", 0x80 | opcode, 0x80 | 126, n)
+            else:
+                header = struct.pack("!BBQ", 0x80 | opcode, 0x80 | 127, n)
+            masked = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+            self.sock.sendall(header + mask + masked)
+    
+        def send(self, obj: dict) -> None:
+            self._send_frame(0x1, json.dumps(obj).encode())
+    
+        def recv(self) -> dict:
+            message = b""
+            while True:
+                b1, b2 = self._read(2)
+                opcode, n = b1 & 0x0F, b2 & 0x7F
+                if n == 126:
+                    n = struct.unpack("!H", self._read(2))[0]
+                elif n == 127:
+                    n = struct.unpack("!Q", self._read(8))[0]
+                mask = self._read(4) if b2 & 0x80 else None
+                payload = self._read(n)
+                if mask:
+                    payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
+                if opcode == 0x8:
+                    raise ConnectionError("websocket closed by HA")
+                if opcode == 0x9:
+                    self._send_frame(0xA, payload)
+                    continue
+                if opcode in (0x1, 0x2, 0x0):
+                    message += payload
+                    if b1 & 0x80:
+                        return json.loads(message)
+    
+        def call(self, msg_type: str, **fields) -> dict:
+            """Send one command; return its result message (skipping events)."""
+            msg_id = self.next_id
+            self.next_id += 1
+            self.send({"id": msg_id, "type": msg_type, **fields})
+            while True:
+                reply = self.recv()
+                if reply.get("id") == msg_id and reply.get("type") == "result":
+                    return reply
+    
+        def close(self) -> None:
+            try:
+                self._send_frame(0x8, b"")
+            except OSError:
+                pass
+            self.sock.close()
+    
+    
+    def ws_connect(access_token: str) -> WebSocket:
+        ws = WebSocket(HA_URL.replace("http://", "ws://", 1) + "/api/websocket")
+        try:
+            if ws.recv().get("type") != "auth_required":
+                raise ConnectionError("unexpected websocket greeting")
+            ws.send({"type": "auth", "access_token": access_token})
+            reply = ws.recv()
+            if reply.get("type") != "auth_ok":
+                raise PermissionError(f"websocket auth failed: {reply.get('message', reply)}")
+        except Exception:
+            ws.close()
+            raise
+        return ws
+    
+    
+    # ----- HTTP config reconcile --------------------------------------------------
+    
+    HTTP_META_KEYS = ("created_at", "error", "error_message")
+    # Configure (= restart HA) at most this often, so nothing can restart-loop HA.
+    CONFIGURE_MIN_INTERVAL = 600.0
+    
+    
+    def desired_http_config() -> dict | None:
+        """The proxy settings the chart wants, or None when not managed."""
+        if os.environ.get("HTTP_MANAGE", "true").lower() == "false":
+            return None
+        proxies = [p.strip() for p in os.environ.get("HTTP_TRUSTED_PROXIES", "").split(",") if p.strip()]
+        if not proxies:
+            return None
+        return {
+            "use_x_forwarded_for": True,
+            "trusted_proxies": [str(ipaddress.ip_network(p)) for p in proxies],
+            "use_x_frame_options": os.environ.get("HTTP_USE_X_FRAME_OPTIONS", "true").lower() != "false",
+        }
+    
+    
+    def http_matches(conf: dict | None, desired: dict) -> bool:
+        if not conf:
+            return False
+        if bool(conf.get("use_x_forwarded_for")) != desired["use_x_forwarded_for"]:
+            return False
+        if bool(conf.get("use_x_frame_options", True)) != desired["use_x_frame_options"]:
+            return False
+        try:
+            have = {str(ipaddress.ip_network(p)) for p in conf.get("trusted_proxies") or []}
+        except ValueError:
+            return False
+        return have == set(desired["trusted_proxies"])
+    
+    
+    def plan_http(state: dict, desired: dict) -> tuple[str, dict | None]:
+        """Decide what to do with an ``http/config`` result.
+    
+        Returns (action, config): "ok", "promote", "configure" (with the config
+        to send), "wait" (HA is about to restart into the pending config) or
+        "stuck" (the desired config failed to apply; needs a human).
+        """
+        stable, pending = state.get("stable"), state.get("pending")
+        if http_matches(stable, desired):
+            return "ok", None
+        if http_matches(pending, desired):
+            error = pending.get("error")
+            if error is None:
+                if state.get("active_config_type") == "pending":
+                    return "promote", None
+                return "wait", None
+            if error == "apply_failed":
+                return "stuck", None
+            # "not_promoted" (the trial timed out): configure the same config
+            # again, which clears the error and restarts into it.
+        base = {k: v for k, v in (stable or {}).items() if k not in HTTP_META_KEYS}
+        return "configure", {**base, **desired}
+    
+    
+    class HttpReconciler:
+        def __init__(self) -> None:
+            self.last_configure = -CONFIGURE_MIN_INTERVAL
+            self.last_note = ""
+    
+        def note(self, msg: str) -> None:
+            if msg != self.last_note:  # don't repeat the same line every pass
+                log(msg)
+                self.last_note = msg
+    
+        def reconcile(self, owner: dict[str, str], desired: dict) -> bool:
+            """One pass. True when HA's stable HTTP config matches ``desired``."""
+            try:
+                ws = ws_connect(TOKENS.get(owner))
+            except PermissionError:
+                TOKENS.reset()
+                raise
+            try:
+                reply = ws.call("http/config")
+                if not reply.get("success"):
+                    raise RuntimeError(f"http/config failed: {reply.get('error')}")
+                action, config = plan_http(reply["result"], desired)
+                if action == "ok":
+                    self.note("http config: stable matches (reverse proxy trusted)")
+                    return True
+                if action == "promote":
+                    result = ws.call("http/config/promote")
+                    if not result.get("success"):
+                        raise RuntimeError(f"http/config/promote failed: {result.get('error')}")
+                    self.note("http config: promoted the pending config to stable")
+                    return True
+                if action == "wait":
+                    self.note("http config: pending config not running yet; waiting for HA to restart")
+                    return False
+                if action == "stuck":
+                    self.note(
+                        "http config: the desired config FAILED to apply (apply_failed); "
+                        "not retrying - check homeAssistant.trustedProxies / HA logs"
+                    )
+                    return False
+                if time.monotonic() - self.last_configure < CONFIGURE_MIN_INTERVAL:
+                    self.note("http config: configured recently; not restarting HA again yet")
+                    return False
+                result = ws.call("http/config/configure", config=config)
+                if not result.get("success"):
+                    err = result.get("error") or {}
+                    if err.get("code") == "not_running":
+                        self.note("http config: HA still starting; will configure when running")
+                        return False
+                    raise RuntimeError(f"http/config/configure failed: {err}")
+                self.last_configure = time.monotonic()
+                log(
+                    "http config: stored the reverse-proxy settings as pending "
+                    f"(restart={result['result'].get('restart')}); promoting after HA restarts"
+                )
+                return False
+            finally:
+                ws.close()
+    
+    
+    def onboard_once(owner: dict[str, str]) -> bool:
+        """One pass. True when the user step is done afterwards."""
+        status = onboarding_status()
+        if status is None:
+            # HA drops the onboarding views once onboarding is complete (after a
+            # restart), so this is the normal steady state: say it once.
+            global _SAID_NO_ONBOARDING
+            if not _SAID_NO_ONBOARDING:
+                log("onboarding API not present (HA already onboarded); nothing to do")
+                _SAID_NO_ONBOARDING = True
+            return True
+        if all(status.values()):
+            return True
+    
+        token = None
+        if not status.get("user", True):
+            log(f"onboarding open: creating owner {owner['username']!r}")
+            try:
+                result = request(
+                    "POST",
+                    "/api/onboarding/users",
+                    json_body={
+                        "client_id": CLIENT_ID,
+                        "name": owner["name"],
+                        "username": owner["username"],
+                        "password": owner["password"],
+                        "language": owner["language"],
+                    },
+                )
+            except HTTPError as err:
+                if err.status != 403:  # 403 = someone/something finished it first
+                    raise
+                log("user step already done (HTTP 403)")
+            else:
+                token = exchange_code(result["auth_code"])
+                log("owner created")
+    
+        remaining = [s for s in LATER_STEPS if status.get(s) is False]
+        if remaining:
+            if token is None:
+                token = TOKENS.get(owner)
+            for step in remaining:
+                body = {"client_id": CLIENT_ID, "redirect_uri": REDIRECT_URI} if step == "integration" else {}
+                try:
+                    request("POST", f"/api/onboarding/{step}", json_body=body, token=token)
+                    log(f"completed step {step}")
+                except HTTPError as err:
+                    if err.status != 403:
+                        raise
+                    log(f"step {step} already done")
+    
+        after = onboarding_status()
+        done = after is None or after.get("user", True)
+        if after is not None and all(after.values()):
+            log("onboarding complete")
+        return done
+    
+    
+    def check() -> int:
+        """Readiness: 0 only if HA answers and its onboarding user step is done."""
+        try:
+            status = onboarding_status()
+        except Exception as err:  # noqa: BLE001 - any failure means not ready
+            print(f"not ready: {err}", file=sys.stderr)
+            return 1
+        if status is not None and not status.get("user", True):
+            print("not ready: onboarding user step still open", file=sys.stderr)
+            return 1
+        return 0
+    
+    
+    def main(argv: list[str]) -> int:
+        if "--check" in argv:
+            return check()
+        once = "--once" in argv
+        owner = {
+            "username": os.environ.get("OWNER_USERNAME", ""),
+            "password": os.environ.get("OWNER_PASSWORD", ""),
+            "name": os.environ.get("OWNER_NAME") or "Administrator",
+            "language": os.environ.get("OWNER_LANGUAGE") or "en",
+        }
+        if not owner["username"] or not owner["password"]:
+            log("OWNER_USERNAME and OWNER_PASSWORD are required")
+            return 2
+        recheck = max(5, int(os.environ.get("RECHECK_SECONDS", "60")))
+        desired = desired_http_config()
+        http = HttpReconciler()
+        log(f"watching {HA_URL} onboarding" + (" and http config" if desired else ""))
+        announced = False
+        while True:
+            try:
+                done = onboard_once(owner)
+                if done and not announced:
+                    log("owner account in place; onboarding page closed")
+                    announced = True
+                http_ok = True
+                if done and desired is not None:
+                    try:
+                        http_ok = http.reconcile(owner, desired)
+                    except (urllib.error.URLError, ConnectionError, TimeoutError, OSError):
+                        raise
+                    except Exception as err:  # noqa: BLE001 - report, keep going
+                        http.note(f"http config: {err}")
+                        http_ok = False
+                if once:
+                    return 0 if done and http_ok else 1
+                # Pending work (e.g. promote after HA's restart) must finish well
+                # inside HA's 5-minute trial window: re-check quickly until done.
+                time.sleep(recheck if done and http_ok else min(recheck, 10) if done else 2)
+            except (urllib.error.URLError, ConnectionError, TimeoutError, OSError) as err:
+                # HA not listening yet (first boot installs deps) or restarting.
+                if once:
+                    log(f"HA not reachable: {err}")
+                    return 1
+                time.sleep(1)
+            except Exception as err:  # noqa: BLE001 - keep the sidecar alive
+                log(f"error: {err}")
+                if once:
+                    return 1
+                time.sleep(10)
+    
+    
+    if __name__ == "__main__":
+        sys.exit(main(sys.argv[1:]))
+    
+  fetch_integration.py: |
+    #!/usr/bin/env python3
+    """Install the adrient HA custom integration from the Adrient server (adrient chart).
+    
+    Runs as an initContainer on every Home Assistant pod start: downloads
+    ADRIENT_ZIP_URL (Adrient's /integrations/homeassistant/adrient.zip) and replaces
+    /config/custom_components/adrient with it, so HA always runs the integration
+    that matches the deployed Adrient version.
+    
+    Adrient may still be starting (first install waits for Zitadel/OIDC), so it
+    retries until FETCH_TIMEOUT_SECONDS, then gives up WITHOUT failing: HA starts
+    anyway, keeping any previously installed copy (or none). The next pod start
+    tries again.
+    
+    Standard library only (runs on the Home Assistant image's python3).
+    
+    Environment:
+      ADRIENT_ZIP_URL          required
+      CONFIG_DIR             default /config
+      FETCH_TIMEOUT_SECONDS  default 180
+    """
+    
+    from __future__ import annotations
+    
+    import io
+    import json
+    import os
+    import shutil
+    import sys
+    import time
+    import urllib.error
+    import urllib.request
+    import zipfile
+    
+    PREFIX = "custom_components/adrient/"
+    MAX_BYTES = 20 * 1024 * 1024
+    
+    
+    def log(msg: str) -> None:
+        print(f"[adrient-integration] {msg}", flush=True)
+    
+    
+    def download(url: str) -> bytes:
+        req = urllib.request.Request(url, headers={"Accept": "application/zip"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            raise ValueError("bundle larger than 20 MiB")
+        return data
+    
+    
+    def install(data: bytes, config_dir: str) -> str:
+        """Validate the zip and atomically swap it into custom_components/adrient."""
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        if PREFIX + "manifest.json" not in names:
+            raise ValueError("bundle has no custom_components/adrient/manifest.json")
+        for name in names:
+            # Only plain relative paths inside custom_components/adrient/.
+            if not name.startswith(PREFIX) or ".." in name.split("/") or name.startswith("/"):
+                raise ValueError(f"unexpected path in bundle: {name!r}")
+        manifest = json.loads(zf.read(PREFIX + "manifest.json"))
+        if manifest.get("domain") != "adrient":
+            raise ValueError("bundle manifest is not the adrient integration")
+    
+        target_parent = os.path.join(config_dir, "custom_components")
+        os.makedirs(target_parent, exist_ok=True)
+        staging = os.path.join(target_parent, ".adrient.new")
+        old = os.path.join(target_parent, ".adrient.old")
+        target = os.path.join(target_parent, "adrient")
+        for path in (staging, old):
+            shutil.rmtree(path, ignore_errors=True)
+        os.makedirs(staging)
+        for name in names:
+            dest = os.path.join(staging, name[len(PREFIX) :])
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest, "wb") as fh:
+                fh.write(zf.read(name))
+        if os.path.exists(target):
+            os.rename(target, old)
+        os.rename(staging, target)
+        shutil.rmtree(old, ignore_errors=True)
+        return str(manifest.get("version", "?"))
+    
+    
+    def main() -> int:
+        url = os.environ.get("ADRIENT_ZIP_URL", "")
+        if not url:
+            log("ADRIENT_ZIP_URL not set; skipping")
+            return 0
+        config_dir = os.environ.get("CONFIG_DIR", "/config")
+        timeout = int(os.environ.get("FETCH_TIMEOUT_SECONDS", "180"))
+        deadline = time.monotonic() + timeout
+        delay = 2.0
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                version = install(download(url), config_dir)
+                log(f"installed adrient integration {version} from {url}")
+                return 0
+            except urllib.error.HTTPError as err:
+                if err.code == 404:
+                    log(f"{url} returned 404 (Adrient older than 0.4?); starting HA without updating it")
+                    return 0
+                reason = err
+            except (urllib.error.URLError, OSError, TimeoutError) as err:
+                reason = err
+            except (ValueError, zipfile.BadZipFile) as err:
+                # A bad bundle won't fix itself by retrying.
+                log(f"invalid bundle from {url}: {err}; starting HA without updating it")
+                return 0
+            if time.monotonic() + delay > deadline:
+                existing = os.path.exists(os.path.join(config_dir, "custom_components", "adrient"))
+                log(
+                    f"Adrient not reachable at {url} after {attempt} attempts / {timeout}s ({reason}); "
+                    + ("starting HA with the previously installed integration"
+                       if existing else "starting HA WITHOUT the adrient integration")
+                    + " - it is fetched again on the next pod start"
+                )
+                return 0
+            if attempt == 1 or attempt % 10 == 0:
+                log(f"waiting for Adrient ({reason})")
+            time.sleep(delay)
+            delay = min(delay * 1.5, 10.0)
+    
+    
+    if __name__ == "__main__":
+        sys.exit(main())
+---
+# Source: adrient/templates/postgres.yaml
+# Init script: creates extra databases owned by the adrient user.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: adrient-postgres-init
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: postgres
+data:
+  init-extra-dbs.sh: |
+    #!/bin/sh
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      SELECT 'CREATE DATABASE zitadel OWNER "'||current_user||'"'
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'zitadel')\gexec
+    EOSQL
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      SELECT 'CREATE DATABASE pdf OWNER "'||current_user||'"'
+      WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pdf')\gexec
+    EOSQL
+---
+# Source: adrient/templates/zitadel.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: adrient-zitadel-shared
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 64Mi
+---
+# Source: adrient/templates/zitadel-provision.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: adrient-zitadel-provision
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel-provision
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "patch"]
+---
+# Source: adrient/templates/zitadel-provision.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: adrient-zitadel-provision
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel-provision
+subjects:
+  - kind: ServiceAccount
+    name: adrient-zitadel-provision
+roleRef:
+  kind: Role
+  name: adrient-zitadel-provision
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: adrient/templates/adrient.yaml
+# The adrient app: Deployment + Service. Env mirrors the homelab gitops
+# deployment, sourced from the bundled (or external) dependencies.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adrient-adrient
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: adrient
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: adrient
+    app.kubernetes.io/instance: adrient
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+---
+# Source: adrient/templates/homeassistant.yaml
+# Home Assistant, installed with adrient by default (homeAssistant.enabled).
+# Adrient still treats HA as bring-your-own: this instance is the
+# deployment-default URL for the Home Assistant tile (ADRIENT_HOMEASSISTANT_URL);
+# any org can point the tile at its own HA in Admin > Services instead.
+#
+# Pod layout:
+#   init  seed-config             copy configuration.yaml & co. into /config
+#                                 ONLY when missing (never clobbers)
+#   init  adrient-integration       download adrient.zip from the adrient Service
+#                                 into /config/custom_components/adrient (every
+#                                 start; bounded wait, never blocks HA forever)
+#   main  homeassistant           readiness = onboarding "user" step done, so
+#                                 the Service/Ingress route nothing to a fresh,
+#                                 un-owned HA
+#   side  onboard                 creates the owner from the
+#                                 <release>-homeassistant-owner Secret over
+#                                 localhost and finishes onboarding, then keeps
+#                                 HA's HTTP (reverse-proxy) config promoted
+#                                 (idempotent)
+apiVersion: v1
+kind: Service
+metadata:
+  name: adrient-homeassistant
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: homeassistant
+spec:
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: homeassistant
+    app.kubernetes.io/instance: adrient
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+---
+# Source: adrient/templates/postgres.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: adrient-postgres
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: postgres
+    app.kubernetes.io/instance: adrient
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+# Source: adrient/templates/rustfs.yaml
+# Bundled rustfs (S3-compatible object storage; replaces MinIO in chart 0.2.0).
+# Mirrors the proven adrient.com manifest: RUSTFS_VOLUMES=/data, S3 API on :9100,
+# console disabled, logs to stdout.
+apiVersion: v1
+kind: Service
+metadata:
+  name: adrient-rustfs
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: rustfs
+spec:
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: rustfs
+    app.kubernetes.io/instance: adrient
+  ports:
+    - name: s3
+      port: 9100
+      targetPort: s3
+---
+# Source: adrient/templates/zitadel.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: adrient-zitadel
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel
+spec:
+  selector:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/component: zitadel
+    app.kubernetes.io/instance: adrient
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+# Source: adrient/templates/adrient.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adrient-adrient
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: adrient
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: adrient
+      app.kubernetes.io/instance: adrient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: adrient
+    spec:
+      containers:
+        - name: adrient
+          image: "ghcr.io/adrient-tech/adrient-workspace:v0.4.0"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: grpc, containerPort: 9000 }
+          env:
+            - name: ADRIENT_POSTGRES_DSN
+              value: "postgres://adrient:DevPassword!1@adrient-postgres.adrient.svc.cluster.local:5432/adrient?sslmode=disable"
+            # --- OIDC ---
+            - name: ADRIENT_OIDC_ISSUER
+              value: "http://adrient-zitadel.adrient.svc.cluster.local:8080"
+            - name: ADRIENT_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: adrient-zitadel-secret
+                  key: client-id
+            - name: ADRIENT_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: adrient-zitadel-secret
+                  key: client-secret
+            - name: ADRIENT_OIDC_REDIRECT_URL
+              value: "http://adrient.example.com/api/v1/auth/callback"
+            # --- session ---
+            - name: ADRIENT_SESSION_COOKIE_NAME
+              value: "adrient_session"
+            - name: ADRIENT_SESSION_COOKIE_SECURE
+              value: "false"
+            - name: ADRIENT_SESSION_COOKIE_DOMAIN
+              value: "adrient.example.com"
+            - name: ADRIENT_SESSION_LIFETIME
+              value: "168h"
+            - name: ADRIENT_DEFAULT_ORG_SLUG
+              value: "default"
+            - name: ADRIENT_ADMIN_EMAILS
+              value: "admin@adrient.localtest.me"
+            # --- one-click demo login ---
+            # In-app user management via the Zitadel User API. When Zitadel
+            # advertises an external domain it routes by Host header, so the
+            # in-cluster Service URL would be rejected ("Instance not found");
+            # use the external issuer URL (browser-reachable) in that case,
+            # otherwise the in-cluster Service URL (kind/local).
+            - name: ADRIENT_ZITADEL_API_URL
+              value: "http://adrient-zitadel.adrient.svc.cluster.local:8080"
+            # --- object storage (S3: bundled rustfs, or external) ---
+            - name: ADRIENT_RUSTFS_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: adrient-s3, key: endpoint }
+            - name: ADRIENT_RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: access_key }
+            - name: ADRIENT_RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: secret_key }
+            - name: ADRIENT_RUSTFS_BUCKET
+              valueFrom:
+                secretKeyRef: { name: adrient-s3, key: bucket }
+            # --- PDF signing app (built in-process) ---
+            - name: ADRIENT_PDF_BUILTIN
+              value: "true"
+            - name: PDF_DATABASE_URL
+              value: "postgres://adrient:DevPassword!1@adrient-postgres.adrient.svc.cluster.local:5432/pdf?sslmode=disable"
+            - name: PDF_STORAGE_ENDPOINT
+              valueFrom:
+                secretKeyRef: { name: adrient-s3, key: endpoint }
+            - name: PDF_STORAGE_BUCKET
+              value: "pdf-docs"
+            - name: PDF_STORAGE_REGION
+              value: "us-east-1"
+            - name: PDF_STORAGE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: access_key }
+            - name: PDF_STORAGE_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: secret_key }
+            - name: PDF_CRYPTO_KEY_ENCRYPTION_KEY
+              value: "wWwDxAaMbc6w7gpizZI+mFi7vhL/U+HYhxjDyQyl598="
+            # --- Music radio cache: instance-wide cap (0 = unlimited) ---
+            - name: ADRIENT_RADIO_CACHE_MAX_BYTES
+              value: "5Gi"
+            - name: ADRIENT_RADIO_CACHE_MAX_DAYS
+              value: "30"
+            # --- Home Assistant tile default (orgs can override in Admin) ---
+            - name: ADRIENT_HOMEASSISTANT_URL
+              value: "http://ha.adrient.example.com"
+          resources:
+            limits:
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 30
+---
+# Source: adrient/templates/zitadel.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adrient-zitadel
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: zitadel
+      app.kubernetes.io/instance: adrient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: zitadel
+    spec:
+      # Zitadel runs as a non-root user (uid 1000). fsGroup makes the shared RWO
+      # PVC group-owned and group-writable so start-from-init can write the
+      # bootstrap PAT to /shared (otherwise: "open /shared/...: permission denied").
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        # Wait for Postgres to accept connections before init.
+        - name: wait-for-postgres
+          image: "postgres:17.2-alpine"
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h adrient-postgres.adrient.svc.cluster.local -p 5432 -U adrient; do
+                echo "waiting for postgres..."; sleep 3
+              done
+      containers:
+        - name: zitadel
+          image: "ghcr.io/zitadel/zitadel:v2.71.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - start-from-init
+            - --masterkeyFromEnv
+            - --tlsMode
+            - disabled
+          envFrom:
+            - secretRef:
+                name: adrient-zitadel-config
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+          # start-from-init runs init + setup (migrations, projections, first
+          # instance) and only THEN starts the server. That one-shot sequence is
+          # NOT idempotent — if it is killed part-way (e.g. a premature liveness
+          # failure) the next boot fails on a duplicate default-instance domain.
+          # A startupProbe gates liveness until the server is actually up, giving
+          # setup up to ~10 min (failureThreshold * periodSeconds) on a fresh DB.
+          startupProbe:
+            httpGet: { path: /debug/healthz, port: 8080 }
+            periodSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            httpGet: { path: /debug/ready, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: { path: /debug/healthz, port: 8080 }
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        # Shared between the zitadel container and the provisioning Job via a
+        # PVC so the bootstrap PAT survives and is readable cross-pod.
+        - name: shared
+          persistentVolumeClaim:
+            claimName: adrient-zitadel-shared
+---
+# Source: adrient/templates/homeassistant.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: adrient-homeassistant
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: homeassistant
+spec:
+  serviceName: adrient-homeassistant
+  # HA is single-instance (SQLite recorder + in-process state): never >1.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: homeassistant
+      app.kubernetes.io/instance: adrient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: homeassistant
+      annotations:
+        # Roll the pod when the seed/onboarding/fetch scripts change.
+        checksum/seed: 01a0b161fc06a43a43aab5203201ec33700be895b30005f9b306fb6d4d6f9ffa
+    spec:
+      # Off on purpose: no mDNS/SSDP/Bluetooth discovery from the pod. Add
+      # integrations by IP/hostname instead (see README).
+      hostNetwork: false
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: seed-config
+          image: "ghcr.io/home-assistant/home-assistant:2026.9.4"
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/seed/seed.sh"]
+          env:
+            - { name: CONFIG_DIR, value: /config }
+            - { name: SEED_DIR, value: /seed }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: seed, mountPath: /seed, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 64Mi }
+        # Install the adrient custom integration from the adrient Service on EVERY
+        # start, so HA always runs the one matching the deployed Adrient. Waits
+        # up to fetchTimeoutSeconds for adrient, then starts HA regardless.
+        - name: adrient-integration
+          image: "ghcr.io/home-assistant/home-assistant:2026.9.4"
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "/seed/fetch_integration.py"]
+          env:
+            - name: ADRIENT_ZIP_URL
+              value: "http://adrient-adrient.adrient.svc.cluster.local:8080/integrations/homeassistant/adrient.zip"
+            - { name: CONFIG_DIR, value: /config }
+            - name: FETCH_TIMEOUT_SECONDS
+              value: "180"
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: seed, mountPath: /seed, readOnly: true }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+      containers:
+        - name: homeassistant
+          image: "ghcr.io/home-assistant/home-assistant:2026.9.4"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            privileged: false
+          env:
+            - name: TZ
+              value: "UTC"
+          ports:
+            - { name: http, containerPort: 8123 }
+          volumeMounts:
+            - { name: config, mountPath: /config }
+            - { name: seed, mountPath: /seed, readOnly: true }
+          # First boot installs integrations' Python deps and can take minutes.
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            # Ready only once onboarding's "user" step is done: until the owner
+            # exists, the Service has no endpoints, so neither the Ingress /
+            # HTTPRoute nor anything else using the Service can reach the
+            # first-run "create owner" page.
+            exec:
+              command: ["python3", "-B", "/seed/onboard.py", "--check"]
+            timeoutSeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            limits:
+              memory: 1536Mi
+            requests:
+              cpu: 50m
+              memory: 384Mi
+        # Creates the owner over localhost the moment HA's HTTP server is up
+        # (polls every second), then re-checks every recheckSeconds so a wiped
+        # /config/.storage is re-onboarded too. Idempotent. Needs only the
+        # network, so it runs as nobody with a read-only root filesystem.
+        - name: onboard
+          image: "ghcr.io/home-assistant/home-assistant:2026.9.4"
+          imagePullPolicy: IfNotPresent
+          command: ["python3", "-u", "/seed/onboard.py"]
+          env:
+            - { name: HA_URL, value: "http://127.0.0.1:8123" }
+            - name: OWNER_USERNAME
+              valueFrom:
+                secretKeyRef: { name: adrient-homeassistant-owner, key: username }
+            - name: OWNER_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: adrient-homeassistant-owner, key: password }
+            - name: OWNER_NAME
+              value: "Administrator"
+            - name: OWNER_LANGUAGE
+              value: "en"
+            - name: RECHECK_SECONDS
+              value: "60"
+            # HA 2026.9+ puts http: settings on a 5-minute trial and reverts
+            # them unless promoted; the sidecar promotes (or re-applies) the
+            # reverse-proxy settings below over the websocket API.
+            - name: HTTP_MANAGE
+              value: "true"
+            - name: HTTP_TRUSTED_PROXIES
+              value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8"
+            - name: HTTP_USE_X_FRAME_OPTIONS
+              value: "false"
+            - { name: PYTHONDONTWRITEBYTECODE, value: "1" }
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            privileged: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - { name: seed, mountPath: /seed, readOnly: true }
+          resources:
+            requests: { cpu: 5m, memory: 24Mi }
+            limits: { memory: 64Mi }
+      volumes:
+        - name: seed
+          configMap:
+            name: adrient-homeassistant-seed
+  # config-<release>-homeassistant-0 holds ALL of HA's state (config, .storage,
+  # the recorder DB). Kubernetes never deletes volumeClaimTemplate PVCs on
+  # `helm uninstall`/upgrade.
+  volumeClaimTemplates:
+    - metadata:
+        name: config
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+# Source: adrient/templates/postgres.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: adrient-postgres
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: adrient-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: postgres
+      app.kubernetes.io/instance: adrient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "postgres:17.2-alpine"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: adrient-postgres
+          env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+      volumes:
+        - name: init
+          configMap:
+            name: adrient-postgres-init
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+# Source: adrient/templates/rustfs.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: adrient-rustfs
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: rustfs
+spec:
+  serviceName: adrient-rustfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adrient
+      app.kubernetes.io/component: rustfs
+      app.kubernetes.io/instance: adrient
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: rustfs
+    spec:
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rustfs
+          image: "rustfs/rustfs:1.0.0-beta.7"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+          env:
+            - name: RUSTFS_VOLUMES
+              value: /data
+            - name: RUSTFS_ADDRESS
+              value: ":9100"
+            - name: RUSTFS_CONSOLE_ENABLE
+              value: "false"
+            # "" => logs to stdout (the image default /logs is not a volume).
+            - name: RUSTFS_OBS_LOG_DIRECTORY
+              value: ""
+            - name: RUSTFS_ACCESS_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: access_key }
+            - name: RUSTFS_SECRET_KEY
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: secret_key }
+          ports:
+            - { name: s3, containerPort: 9100 }
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /health, port: s3 }
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /health, port: s3 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+  # volumeClaimTemplates PVCs (data-<release>-rustfs-0) are never deleted by
+  # `helm uninstall`/upgrade — Kubernetes leaves them in place by design.
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# Source: adrient/templates/rustfs.yaml
+# Bucket-init: waits for rustfs to accept S3 auth, then creates the adrient bucket
+# (+ the pdf bucket). A post-install/post-upgrade hook so upgrades RECREATE it
+# (a Job's pod template is immutable) and it runs after rustfs is up. Idempotent
+# (head-bucket || create-bucket), so re-running on every upgrade is safe.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adrient-rustfs-init
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: rustfs-init
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: rustfs-init
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: s3init
+          image: public.ecr.aws/aws-cli/aws-cli:2.22.35
+          command:
+            - sh
+            - -c
+            - |
+              export AWS_ACCESS_KEY_ID="$ACCESS" AWS_SECRET_ACCESS_KEY="$SECRET" AWS_DEFAULT_REGION=us-east-1
+              ep=http://adrient-rustfs.adrient.svc.cluster.local:9100
+              echo "waiting for rustfs S3 auth at $ep..."
+              until aws --endpoint-url "$ep" s3api list-buckets >/dev/null 2>&1; do sleep 3; done
+              mkbucket() {
+                aws --endpoint-url "$ep" s3api head-bucket --bucket "$1" 2>/dev/null ||
+                  aws --endpoint-url "$ep" s3api create-bucket --bucket "$1" >/dev/null
+                echo "bucket $1 ready"
+              }
+              mkbucket adrient-default
+              mkbucket pdf-docs
+          env:
+            - name: ACCESS
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: access_key }
+            - name: SECRET
+              valueFrom:
+                secretKeyRef: { name: adrient-rustfs, key: secret_key }
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { memory: 256Mi }
+---
+# Source: adrient/templates/zitadel-provision.yaml
+# Provisioning Job: waits for Zitadel + the bootstrap PAT (written by
+# start-from-init to the shared PVC), creates the adrient project + OIDC app, and
+# writes the client-id/client-secret into auth.clientSecretName.
+# Same flow as deploy/zitadel/create-oidc-app.sh.
+#
+# NOTE: this Job mounts the SAME RWO PVC as the Zitadel pod to read the PAT, so
+# both pods must schedule on the same node. That holds on kind (single node) and
+# a single-node Pi. For multi-node, set auth.mode=external (see README).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: adrient-zitadel-provision
+  labels:
+    app.kubernetes.io/name: adrient
+    app.kubernetes.io/instance: adrient
+    app.kubernetes.io/managed-by: Helm
+    helm.sh/chart: adrient-0.4.1
+    app.kubernetes.io/component: zitadel-provision
+  # Run as a Helm hook so chart upgrades RECREATE it instead of patching it (a
+  # Job pod template is immutable; a plain upgrade touching the Job fails with
+  # "field is immutable"). It is idempotent: it exits 0 immediately when the
+  # OIDC client secret is already populated (client-id != CHANGE_ME).
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 20
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adrient
+        app.kubernetes.io/instance: adrient
+        app.kubernetes.io/managed-by: Helm
+        helm.sh/chart: adrient-0.4.1
+        app.kubernetes.io/component: zitadel-provision
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: adrient-zitadel-provision
+      # Match the Zitadel pod's fsGroup so the shared PVC's PAT file is readable.
+      securityContext:
+        fsGroup: 1000
+      # The provision Job and the Zitadel pod share the SAME ReadWriteOnce PVC
+      # (to read the bootstrap PAT), so on a multi-node cluster they MUST land on
+      # the same node — otherwise the PVC Multi-Attach blocks one of them. Pin the
+      # Job to the Zitadel pod's node via required podAffinity.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: adrient
+                  app.kubernetes.io/component: zitadel
+                  app.kubernetes.io/instance: adrient
+              topologyKey: kubernetes.io/hostname
+      volumes:
+        - name: shared
+          persistentVolumeClaim:
+            claimName: adrient-zitadel-shared
+      containers:
+        - name: provision
+          image: alpine/k8s:1.32.2
+          env:
+            - name: ZITADEL_URL
+              value: "http://adrient-zitadel.adrient.svc.cluster.local:8080"
+            # When Zitadel advertises an external domain, it routes API requests
+            # by Host header. Calls to the in-cluster Service URL must therefore
+            # send Host: <externalDomain> or Zitadel returns "Instance not found".
+            - name: ZITADEL_HOST_HEADER
+              value: ""
+            - name: REDIRECT_URL
+              value: "http://adrient.example.com/api/v1/auth/callback"
+            - name: POST_LOGOUT_URL
+              value: "http://adrient.example.com/"
+            - name: SECRET_NAME
+              value: "adrient-zitadel-secret"
+            - name: SECRET_NAMESPACE
+              value: "adrient"
+            - name: PROJECT_NAME
+              value: "adrient"
+            - name: APP_NAME
+              value: "adrient"
+            - name: PAT_FILE
+              value: "/shared/bootstrap-pat.txt"
+          volumeMounts:
+            - name: shared
+              mountPath: /shared
+              readOnly: true
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              echo "=== adrient Zitadel OIDC client provisioning ==="
+
+              # Skip if the secret already has a real client-id.
+              EXISTING=$(kubectl get secret "$SECRET_NAME" -n "$SECRET_NAMESPACE" \
+                -o jsonpath='{.data.client-id}' 2>/dev/null | base64 -d || echo "")
+              if [ -n "$EXISTING" ] && [ "$EXISTING" != "CHANGE_ME" ]; then
+                echo "Secret $SECRET_NAME already has client-id $EXISTING; skipping."
+                exit 0
+              fi
+
+              # Host header sent on every API call so Zitadel resolves the
+              # instance when it advertises an external domain (empty => none).
+              HOSTHDR=""
+              [ -n "$ZITADEL_HOST_HEADER" ] && HOSTHDR="-H Host:$ZITADEL_HOST_HEADER"
+
+              echo "Waiting for Zitadel /debug/ready..."
+              until curl -sf $HOSTHDR "$ZITADEL_URL/debug/ready" >/dev/null; do
+                echo "  zitadel not ready..."; sleep 5
+              done
+
+              echo "Waiting for bootstrap PAT at $PAT_FILE..."
+              for i in $(seq 1 60); do
+                [ -s "$PAT_FILE" ] && break
+                echo "  waiting for PAT ($i)..."; sleep 3
+              done
+              [ -s "$PAT_FILE" ] || { echo "PAT file not found"; exit 1; }
+              TOKEN=$(tr -d '[:space:]' < "$PAT_FILE")
+
+              api() { curl -s $HOSTHDR -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" "$@"; }
+
+              # Find or create project.
+              PID=$(api -X POST "$ZITADEL_URL/management/v1/projects/_search" \
+                -d "{\"queries\":[{\"nameQuery\":{\"name\":\"$PROJECT_NAME\",\"method\":\"TEXT_QUERY_METHOD_EQUALS\"}}]}" \
+                | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              if [ -z "$PID" ]; then
+                echo "Creating project $PROJECT_NAME..."
+                PID=$(api -X POST "$ZITADEL_URL/management/v1/projects" \
+                  -d "{\"name\":\"$PROJECT_NAME\"}" \
+                  | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+              fi
+              [ -z "$PID" ] && { echo "no project id"; exit 1; }
+              echo "Project: $PID"
+
+              # Relax login policy so the OIDC flow completes without forced MFA.
+              api -X PUT "$ZITADEL_URL/admin/v1/policies/login" \
+                -d '{"allowUsernamePassword":true,"allowRegister":false,"allowExternalIdp":false,"forceMfa":false,"forceMfaLocalOnly":false,"passwordlessType":"PASSWORDLESS_TYPE_NOT_ALLOWED","passwordCheckLifetime":"864000s","externalLoginCheckLifetime":"864000s","mfaInitSkipLifetime":"2592000s","secondFactorCheckLifetime":"64800s","multiFactorCheckLifetime":"43200s"}' >/dev/null || true
+
+              # Create the OIDC web app. Zitadel returns clientId+clientSecret once.
+              RESP=$(api -X POST "$ZITADEL_URL/management/v1/projects/$PID/apps/oidc" \
+                -d "{
+                  \"name\": \"$APP_NAME\",
+                  \"redirectUris\": [\"$REDIRECT_URL\"],
+                  \"responseTypes\": [\"OIDC_RESPONSE_TYPE_CODE\"],
+                  \"grantTypes\": [\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\", \"OIDC_GRANT_TYPE_REFRESH_TOKEN\"],
+                  \"appType\": \"OIDC_APP_TYPE_WEB\",
+                  \"authMethodType\": \"OIDC_AUTH_METHOD_TYPE_BASIC\",
+                  \"postLogoutRedirectUris\": [\"$POST_LOGOUT_URL\"],
+                  \"accessTokenType\": \"OIDC_TOKEN_TYPE_BEARER\",
+                  \"accessTokenRoleAssertion\": true,
+                  \"idTokenRoleAssertion\": true,
+                  \"idTokenUserinfoAssertion\": true,
+                  \"devMode\": true
+                }")
+              CID=$(echo "$RESP" | grep -o '"clientId":"[^"]*"' | head -1 | cut -d'"' -f4)
+              CSECRET=$(echo "$RESP" | grep -o '"clientSecret":"[^"]*"' | head -1 | cut -d'"' -f4)
+              if [ -z "$CID" ] || [ -z "$CSECRET" ]; then
+                # This Job is a post-install/upgrade hook, so it re-runs on EVERY
+                # chart upgrade. We only reach here when $SECRET_NAME was still
+                # CHANGE_ME/empty (the guard near the top of this script exits
+                # early once it holds a real client-id) — i.e. the OIDC app exists
+                # but its secret was never persisted. The client secret is only
+                # returned at creation, so SELF-HEAL: look the app up by name and
+                # REGENERATE its secret, then fall through to write it. Because the
+                # early guard skips once the secret is valid, this never needlessly
+                # rotates an already-working secret. Only a genuine error is fatal.
+                if echo "$RESP" | grep -qi "already exists"; then
+                  echo "OIDC app '$APP_NAME' exists but $SECRET_NAME is unset — re-issuing its client secret."
+                  APP_ID=$(api -X POST "$ZITADEL_URL/management/v1/projects/$PID/apps/_search" \
+                    -d "{\"queries\":[{\"nameQuery\":{\"name\":\"$APP_NAME\",\"method\":\"TEXT_QUERY_METHOD_EQUALS\"}}]}" \
+                    | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  if [ -z "$APP_ID" ]; then echo "could not find existing app $APP_NAME"; exit 1; fi
+                  CID=$(api "$ZITADEL_URL/management/v1/projects/$PID/apps/$APP_ID" \
+                    | grep -o '"clientId":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  CSECRET=$(api -X POST "$ZITADEL_URL/management/v1/projects/$PID/apps/$APP_ID/oidc_config/_generate_client_secret" \
+                    | grep -o '"clientSecret":"[^"]*"' | head -1 | cut -d'"' -f4)
+                  if [ -z "$CID" ] || [ -z "$CSECRET" ]; then
+                    echo "failed to re-issue client secret (app=$APP_ID)"; exit 1
+                  fi
+                  echo "Re-issued client secret for existing app $APP_ID (client_id=$CID)"
+                else
+                  echo "Failed to create OIDC app: $RESP"; exit 1
+                fi
+              else
+                echo "Created OIDC app client_id=$CID"
+              fi
+
+              kubectl create secret generic "$SECRET_NAME" -n "$SECRET_NAMESPACE" \
+                --from-literal=client-id="$CID" \
+                --from-literal=client-secret="$CSECRET" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "=== Wrote $SECRET_NAME (client-id/client-secret) ==="

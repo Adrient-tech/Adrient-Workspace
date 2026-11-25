@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Gomoku — Five in a Row</title>
+<style>
+  :root {
+    --bg: #1a1410;
+    --panel: #241c15;
+    --board: #d9b06a;
+    --line: #6b4f2a;
+    --accent: #e0a44a;
+    --text: #f0e6d2;
+    --muted: #b09c7c;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex; flex-direction: column;
+    align-items: center;
+    height: 100dvh;
+    user-select: none; -webkit-user-select: none;
+  }
+  header {
+    width: 100%;
+    text-align: center;
+    padding: 8px 8px 4px;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(18px, 5vw, 26px);
+    letter-spacing: 1px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  #status {
+    margin: 4px 0 0;
+    font-size: clamp(13px, 3.6vw, 16px);
+    min-height: 1.3em;
+    color: var(--muted);
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+  }
+  #status .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    display: inline-block; flex: 0 0 auto;
+    box-shadow: inset 0 1px 2px rgba(255,255,255,.4), 0 1px 2px rgba(0,0,0,.5);
+  }
+  .dot.black { background: radial-gradient(circle at 35% 30%, #555, #000); }
+  .dot.white { background: radial-gradient(circle at 35% 30%, #fff, #c8c8c8); }
+  #boardWrap {
+    flex: 1 1 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 100%;
+    min-height: 0;
+    padding: 4px;
+  }
+  #board {
+    background: var(--board);
+    border-radius: 6px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.5);
+    touch-action: none;
+    display: block;
+  }
+  footer {
+    width: 100%;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    display: flex; justify-content: center;
+  }
+  button {
+    background: var(--accent);
+    color: #2a1d0a;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 28px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+    box-shadow: 0 3px 0 #a87420;
+    transition: transform .05s, box-shadow .05s;
+  }
+  button:active { transform: translateY(2px); box-shadow: 0 1px 0 #a87420; }
+  .mode-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.6);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .mode-overlay.show { display: flex; }
+  .mode-modal {
+    background: var(--panel);
+    color: var(--text);
+    padding: 28px 30px;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    max-width: 80vw;
+  }
+  .mode-modal h2 { margin: 0 0 8px; font-size: 1.5rem; color: var(--accent); }
+  .mode-modal p { margin: 0 0 18px; color: var(--muted); }
+  .mode-modal .mode-btns { display: flex; flex-direction: column; gap: 12px; }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/gomoku.svg">
+    <link rel="manifest" href="/games/gomoku.webmanifest">
+    <meta name="theme-color" content="#0F766E">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Gomoku">
+    <link rel="apple-touch-icon" href="/games/icons/gomoku.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="gomoku",NAME="Gomoku",COLOR="#0F766E",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+  <header>
+    <h1>Gomoku</h1>
+    <div id="status"><span class="dot black"></span><span id="statusText">Your move</span></div>
+  </header>
+  <div id="boardWrap">
+    <canvas id="board"></canvas>
+  </div>
+  <footer>
+    <button id="newGame">New Game</button>
+  </footer>
+
+  <div id="modeOverlay" class="mode-overlay">
+    <div class="mode-modal">
+      <h2>Gomoku</h2>
+      <p>Choose a mode</p>
+      <div class="mode-btns">
+        <button id="modeAi">🤖 vs Computer</button>
+        <button id="modeTwo">👥 2 Players</button>
+      </div>
+    </div>
+  </div>
+
+<script src="/games/game-multiplayer.js?v=2"></script>
+<script>
+(function () {
+  "use strict";
+
+  const N = 15;            // board size
+  const EMPTY = 0, HUMAN = 1, CPU = 2; // human = black, cpu = white
+  let board = [];          // N*N flat array
+  let gameOver = false;
+  let busy = false;        // true while CPU is "thinking" / animating
+  let winLine = null;      // {cells:[[r,c],...]}
+  let lastMove = null;     // [r,c]
+  let moveCount = 0;
+  let mode = 'ai';         // 'ai' = vs computer, '2p' = pass-and-play hot seat, 'online' = networked
+  let turn = HUMAN;        // side to move (used in 2p/online; in ai humans are always HUMAN)
+  let mySide = HUMAN;      // which side this client controls when online (Black=HUMAN goes first)
+
+  const canvas = document.getElementById("board");
+  const ctx = canvas.getContext("2d");
+  const statusText = document.getElementById("statusText");
+  const statusDot = document.querySelector("#status .dot");
+  const modeOverlay = document.getElementById("modeOverlay");
+
+  // In 2p both sides are human; in ai only HUMAN (black) is human-controlled;
+  // online only your own side is human (your turn when turn===mySide).
+  function isHumanTurn() {
+    if (mode === 'online') return turn === mySide;
+    return mode === '2p' ? true : turn === HUMAN;
+  }
+  function sideName(side) {
+    if (mode === '2p') return side === HUMAN ? 'Black' : 'White';
+    return side === HUMAN ? 'You' : 'CPU';
+  }
+
+  let cell = 0, margin = 0, pxSize = 0, dpr = 1;
+
+  // ---------- WebAudio (optional, generated) ----------
+  let audioCtx = null;
+  function beep(freq, dur, type, vol) {
+    try {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      g.gain.value = vol || 0.15;
+      o.connect(g); g.connect(audioCtx.destination);
+      const t = audioCtx.currentTime;
+      g.gain.setValueAtTime(g.gain.value, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.start(t); o.stop(t + dur);
+    } catch (e) { /* ignore */ }
+  }
+  function soundPlace(player) { beep(player === HUMAN ? 420 : 300, 0.08, "sine", 0.18); }
+  function soundWin() { beep(660, 0.12, "triangle", 0.2); setTimeout(()=>beep(880,0.2,"triangle",0.2),120); }
+  function soundDraw() { beep(220, 0.3, "sawtooth", 0.12); }
+
+  // ---------- Sizing ----------
+  function resize() {
+    const wrap = document.getElementById("boardWrap");
+    const rect = wrap.getBoundingClientRect();
+    const avail = Math.max(120, Math.min(rect.width, rect.height));
+    pxSize = Math.floor(avail);
+    // margin so edge stones aren't clipped; cell is distance between lines
+    margin = Math.round(pxSize / (N + 1));
+    cell = (pxSize - margin * 2) / (N - 1);
+
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    canvas.style.width = pxSize + "px";
+    canvas.style.height = pxSize + "px";
+    canvas.width = Math.round(pxSize * dpr);
+    canvas.height = Math.round(pxSize * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  // ---------- Drawing ----------
+  function pos(i) { return margin + i * cell; }
+
+  function draw() {
+    ctx.clearRect(0, 0, pxSize, pxSize);
+
+    // grid lines
+    ctx.strokeStyle = "#6b4f2a";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const p = pos(i);
+      ctx.moveTo(pos(0), p); ctx.lineTo(pos(N - 1), p);
+      ctx.moveTo(p, pos(0)); ctx.lineTo(p, pos(N - 1));
+    }
+    ctx.stroke();
+
+    // star points (hoshi)
+    const stars = [3, 7, 11];
+    ctx.fillStyle = "#5a4020";
+    for (const r of stars) for (const c of stars) {
+      ctx.beginPath();
+      ctx.arc(pos(c), pos(r), Math.max(2, cell * 0.08), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // stones
+    const radius = cell * 0.42;
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        const v = board[r * N + c];
+        if (v === EMPTY) continue;
+        drawStone(pos(c), pos(r), radius, v);
+      }
+    }
+
+    // last move marker
+    if (lastMove && !winLine) {
+      const [r, c] = lastMove;
+      ctx.strokeStyle = board[r * N + c] === HUMAN ? "#e0a44a" : "#c04030";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(pos(c), pos(r), radius * 0.45, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // win line
+    if (winLine) {
+      const a = winLine.cells[0], b = winLine.cells[winLine.cells.length - 1];
+      ctx.strokeStyle = "rgba(220,60,40,0.9)";
+      ctx.lineWidth = Math.max(3, cell * 0.12);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(pos(a[1]), pos(a[0]));
+      ctx.lineTo(pos(b[1]), pos(b[0]));
+      ctx.stroke();
+    }
+  }
+
+  function drawStone(x, y, radius, player) {
+    const grad = ctx.createRadialGradient(x - radius * 0.35, y - radius * 0.35, radius * 0.1, x, y, radius);
+    if (player === HUMAN) {
+      grad.addColorStop(0, "#666");
+      grad.addColorStop(1, "#0a0a0a");
+    } else {
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(1, "#c0c0c0");
+    }
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(0,0,0,0.25)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // ---------- Game logic ----------
+  function idx(r, c) { return r * N + c; }
+  function inBounds(r, c) { return r >= 0 && r < N && c >= 0 && c < N; }
+
+  const DIRS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+
+  // Returns winning line cells if player has 5 in a row through (r,c), else null
+  function checkWin(r, c, player) {
+    for (const [dr, dc] of DIRS) {
+      const cells = [[r, c]];
+      // forward
+      let rr = r + dr, cc = c + dc;
+      while (inBounds(rr, cc) && board[idx(rr, cc)] === player) { cells.push([rr, cc]); rr += dr; cc += dc; }
+      // backward
+      rr = r - dr; cc = c - dc;
+      while (inBounds(rr, cc) && board[idx(rr, cc)] === player) { cells.unshift([rr, cc]); rr -= dr; cc -= dc; }
+      if (cells.length >= 5) {
+        return { cells: cells.slice(0, 5) };
+      }
+    }
+    return null;
+  }
+
+  function setStatus(text, dotPlayer) {
+    statusText.textContent = text;
+    statusDot.className = "dot " + (dotPlayer === HUMAN ? "black" : "white");
+    if (dotPlayer === null) statusDot.style.visibility = "hidden";
+    else statusDot.style.visibility = "visible";
+  }
+
+  function placeStone(r, c, player) {
+    board[idx(r, c)] = player;
+    lastMove = [r, c];
+    moveCount++;
+    soundPlace(player);
+    const win = checkWin(r, c, player);
+    if (win) {
+      winLine = win;
+      gameOver = true;
+      draw();
+      if (mode === 'online') { setStatus(player === mySide ? "You win! 🎉" : "Opponent wins!", null); }
+      else if (mode === '2p') { setStatus(sideName(player) + " wins! 🎉", null); }
+      else if (player === HUMAN) { setStatus("You win! 🎉", null); }
+      else { setStatus("CPU wins", null); }
+      soundWin();
+      return true;
+    }
+    if (moveCount >= N * N) {
+      gameOver = true;
+      draw();
+      setStatus("Draw — board full", null);
+      soundDraw();
+      return true;
+    }
+    draw();
+    return false;
+  }
+
+  // ---------- Input ----------
+  function pointToCell(px, py) {
+    const rect = canvas.getBoundingClientRect();
+    const x = px - rect.left;
+    const y = py - rect.top;
+    const c = Math.round((x - margin) / cell);
+    const r = Math.round((y - margin) / cell);
+    if (!inBounds(r, c)) return null;
+    // tolerance: must be reasonably close to intersection
+    const dx = x - pos(c), dy = y - pos(r);
+    if (Math.hypot(dx, dy) > cell * 0.55) return null;
+    return [r, c];
+  }
+
+  function humanMove(px, py) {
+    if (gameOver || busy || !isHumanTurn()) return;
+    const cellHit = pointToCell(px, py);
+    if (!cellHit) return;
+    const [r, c] = cellHit;
+    if (board[idx(r, c)] !== EMPTY) return;
+
+    const mover = turn;
+    if (mode === 'online') GameMP.send({ r, c, player: mover });
+    const ended = placeStone(r, c, mover);
+    if (ended) return;
+
+    if (mode === '2p' || mode === 'online') {
+      // Pass-and-play / networked: the other side moves next.
+      turn = mover === HUMAN ? CPU : HUMAN;
+      if (mode === 'online') setStatus(turn === mySide ? "Your turn" : "Opponent's turn", turn);
+      else setStatus(sideName(turn) + "'s move", turn);
+      return;
+    }
+
+    busy = true;
+    setStatus("CPU thinking…", CPU);
+    setTimeout(() => {
+      cpuMove();
+      busy = false;
+    }, 220);
+  }
+
+  canvas.addEventListener("touchstart", function (e) {
+    e.preventDefault();
+    if (e.changedTouches && e.changedTouches.length) {
+      const t = e.changedTouches[0];
+      humanMove(t.clientX, t.clientY);
+    }
+  }, { passive: false });
+
+  canvas.addEventListener("mousedown", function (e) {
+    e.preventDefault();
+    humanMove(e.clientX, e.clientY);
+  });
+
+  // ---------- CPU heuristic AI ----------
+  // Score a single line pattern for a player given counts. We use a per-cell
+  // evaluation: for each candidate empty cell, compute the offensive value
+  // (placing CPU there) and defensive value (placing HUMAN there) and combine.
+
+  // Evaluate the strength of placing `player` at (r,c) by scanning the 4 dirs.
+  function evalCellForPlayer(r, c, player) {
+    let score = 0;
+    for (const [dr, dc] of DIRS) {
+      score += evalLine(r, c, dr, dc, player);
+    }
+    return score;
+  }
+
+  // Count consecutive stones + open ends in one direction axis through (r,c)
+  // assuming (r,c) is occupied by `player`. Returns a pattern score.
+  function evalLine(r, c, dr, dc, player) {
+    // count contiguous same-player stones forward & backward, and whether ends open
+    let count = 1; // the stone at (r,c) itself
+    let openEnds = 0;
+    let blockedEnds = 0;
+
+    // forward
+    let rr = r + dr, cc = c + dc;
+    while (inBounds(rr, cc) && board[idx(rr, cc)] === player) { count++; rr += dr; cc += dc; }
+    if (inBounds(rr, cc) && board[idx(rr, cc)] === EMPTY) openEnds++; else blockedEnds++;
+
+    // backward
+    rr = r - dr; cc = c - dc;
+    while (inBounds(rr, cc) && board[idx(rr, cc)] === player) { count++; rr -= dr; cc -= dc; }
+    if (inBounds(rr, cc) && board[idx(rr, cc)] === EMPTY) openEnds++; else blockedEnds++;
+
+    return patternScore(count, openEnds);
+  }
+
+  function patternScore(count, openEnds) {
+    if (count >= 5) return 1000000;          // five in a row -> win
+    if (openEnds === 0 && count < 5) return 0; // fully blocked, useless
+    switch (count) {
+      case 4:
+        return openEnds === 2 ? 100000 : 12000; // open four (win next) / four with one open end
+      case 3:
+        return openEnds === 2 ? 5000 : 600;     // open three / blocked three
+      case 2:
+        return openEnds === 2 ? 200 : 40;
+      case 1:
+        return openEnds === 2 ? 12 : 4;
+      default:
+        return 0;
+    }
+  }
+
+  // Does the board have any stone within `dist` of (r,c)?
+  function hasNeighbor(r, c, dist) {
+    for (let dr = -dist; dr <= dist; dr++) {
+      for (let dc = -dist; dc <= dist; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (inBounds(nr, nc) && board[idx(nr, nc)] !== EMPTY) return true;
+      }
+    }
+    return false;
+  }
+
+  function cpuMove() {
+    if (gameOver) return;
+
+    // 1) Win immediately if possible.
+    let winCell = findImmediate(CPU);
+    if (winCell) { placeStone(winCell[0], winCell[1], CPU); afterCpu(); return; }
+
+    // 2) Block human's immediate win.
+    let blockCell = findImmediate(HUMAN);
+    if (blockCell) { placeStone(blockCell[0], blockCell[1], CPU); afterCpu(); return; }
+
+    // 3) Heuristic best cell.
+    let best = null, bestScore = -1;
+    const empties = [];
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        if (board[idx(r, c)] !== EMPTY) continue;
+        if (moveCount > 0 && !hasNeighbor(r, c, 2)) continue; // prune far cells
+        empties.push([r, c]);
+      }
+    }
+    // If board empty (CPU first / no neighbors), play center.
+    if (empties.length === 0) {
+      const mid = Math.floor(N / 2);
+      placeStone(mid, mid, CPU); afterCpu(); return;
+    }
+
+    for (const [r, c] of empties) {
+      const offense = evalCellForPlayer(r, c, CPU);
+      const defense = evalCellForPlayer(r, c, HUMAN);
+      // Weight defense slightly under offense so CPU prefers winning threats,
+      // but still blocks strong human threats. Add small center bias.
+      const center = -(Math.abs(r - 7) + Math.abs(c - 7));
+      const score = offense * 1.05 + defense * 0.95 + center * 0.5 + Math.random() * 4;
+      if (score > bestScore) { bestScore = score; best = [r, c]; }
+    }
+
+    if (best) { placeStone(best[0], best[1], CPU); }
+    afterCpu();
+  }
+
+  // Find a cell where `player` would immediately make 5 in a row.
+  function findImmediate(player) {
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        if (board[idx(r, c)] !== EMPTY) continue;
+        board[idx(r, c)] = player;
+        const win = checkWin(r, c, player);
+        board[idx(r, c)] = EMPTY;
+        if (win) return [r, c];
+      }
+    }
+    return null;
+  }
+
+  function afterCpu() {
+    if (!gameOver) setStatus("Your move", HUMAN);
+  }
+
+  // ---------- New game ----------
+  function newGame() {
+    board = new Array(N * N).fill(EMPTY);
+    gameOver = false;
+    busy = false;
+    winLine = null;
+    lastMove = null;
+    moveCount = 0;
+    turn = HUMAN;
+    if (mode === 'online') setStatus(turn === mySide ? "Your turn" : "Opponent's turn", HUMAN);
+    else setStatus(mode === '2p' ? sideName(HUMAN) + "'s move" : "Your move", HUMAN);
+    // try to resume audio on user gesture
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+    draw();
+  }
+
+  // ---------- Mode selection ----------
+  function showModeSelect() { modeOverlay.classList.add("show"); }
+  function startMode(m) {
+    mode = m;
+    modeOverlay.classList.remove("show");
+    newGame();
+  }
+  document.getElementById("modeAi").addEventListener("click", function () { startMode("ai"); });
+  document.getElementById("modeTwo").addEventListener("click", function () { startMode("2p"); });
+
+  // "New Game" returns to the mode picker so you can switch AI / 2-player.
+  // When online, it restarts the shared board and tells the opponent.
+  document.getElementById("newGame").addEventListener("click", function () {
+    if (mode === 'online') { newGame(); GameMP.sendReset(); return; }
+    showModeSelect();
+  });
+
+  // keyboard: N for new game (returns to mode picker; restarts online)
+  window.addEventListener("keydown", function (e) {
+    if (e.key === "n" || e.key === "N") {
+      if (mode === 'online') { newGame(); GameMP.sendReset(); return; }
+      showModeSelect();
+    }
+  });
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 150); });
+
+  // ---------- Online multiplayer (drop-in via game-multiplayer.js) ----------
+  // Apply an opponent's stone. m.player is the side that moved; ignore our own
+  // echo and only advance the shared turn for the opponent's move. Routes
+  // through the same placeStone path so win/draw handling stays identical.
+  function applyRemoteMove(m) {
+    if (mode !== 'online' || gameOver) return;
+    if (m.player === mySide) return;            // ignore our own echo
+    if (board[idx(m.r, m.c)] !== EMPTY) return; // already occupied (safety)
+    const mover = m.player;
+    const ended = placeStone(m.r, m.c, mover);
+    if (ended) return;
+    turn = mover === HUMAN ? CPU : HUMAN;
+    setStatus(turn === mySide ? "Your turn" : "Opponent's turn", turn);
+  }
+
+  GameMP.setup({ gameName: 'Gomoku' });
+  GameMP.onReady(function (role) {
+    // role 0 = host → Black (HUMAN, goes first); role 1 = guest → White (CPU side).
+    mode = 'online';
+    mySide = role === 0 ? HUMAN : CPU;
+    modeOverlay.classList.remove("show");
+    newGame();
+  });
+  GameMP.onMove(applyRemoteMove);
+  GameMP.onReset(function () { if (mode === 'online') newGame(); });
+  GameMP.onPeerLeft(function () {
+    if (mode !== 'online') return;
+    gameOver = true;
+    setStatus("Opponent left.", null);
+  });
+
+  // init: render an idle board, then ask for a mode.
+  board = new Array(N * N).fill(EMPTY);
+  resize();
+  newGame();
+  showModeSelect();
+})();
+</script>
+</body>
+</html>

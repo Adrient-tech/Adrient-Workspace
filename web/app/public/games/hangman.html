@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Modern Hangman</title>
+    <style>
+        :root {
+            --primary: #4a90e2;
+            --secondary: #f5f7fa;
+            --accent: #e74c3c;
+            --success: #2ecc71;
+            --text: #2c3e50;
+            --shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--secondary);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        #game-container {
+            background: white;
+            padding: 2rem;
+            border-radius: 15px;
+            box-shadow: var(--shadow);
+            width: 100%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h1 { margin-top: 0; color: var(--primary); }
+
+        #difficulty {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 1rem;
+        }
+
+        .diff-btn {
+            padding: 6px 16px;
+            border: 1px solid var(--primary);
+            background: white;
+            color: var(--primary);
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            touch-action: manipulation;
+        }
+
+        .diff-btn.active { background: var(--primary); color: white; }
+
+        #category-tag {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        #hangman-svg {
+            width: 200px;
+            height: 200px;
+            margin: 10px auto;
+        }
+
+        .hangman-part {
+            stroke: var(--text);
+            stroke-width: 4;
+            fill: none;
+            stroke-linecap: round;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        #word-display {
+            font-size: 2rem;
+            letter-spacing: 0.5rem;
+            margin: 1.5rem 0;
+            font-weight: bold;
+            min-height: 3rem;
+            word-break: break-word;
+        }
+
+        #status-message {
+            font-weight: bold;
+            min-height: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .error-text { color: var(--accent); }
+        .win-text { color: var(--success); }
+
+        #keyboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(35px, 1fr));
+            gap: 8px;
+            margin-top: 1rem;
+        }
+
+        .key {
+            padding: 10px 5px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.2s;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        .key:hover:not(:disabled) {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .key:disabled { cursor: default; }
+        .key.correct { background: var(--success); color: white; border-color: var(--success); }
+        .key.wrong { background: var(--accent); color: white; border-color: var(--accent); }
+
+        #stats {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: #7f8c8d;
+        }
+
+        #reset-btn {
+            margin-top: 1.5rem;
+            padding: 10px 25px;
+            font-size: 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            touch-action: manipulation;
+        }
+
+        #reset-btn:hover { opacity: 0.9; }
+
+        @media (max-width: 400px) {
+            #word-display { font-size: 1.5rem; letter-spacing: 0.35rem; }
+            .key { padding: 8px 2px; font-size: 0.8rem; }
+            .diff-btn { padding: 6px 11px; }
+        }
+    </style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/hangman.svg">
+    <link rel="manifest" href="/games/hangman.webmanifest">
+    <meta name="theme-color" content="#6D4C41">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Hangman">
+    <link rel="apple-touch-icon" href="/games/icons/hangman.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="hangman",NAME="Hangman",COLOR="#6D4C41",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+
+<div id="game-container">
+    <h1>Hangman</h1>
+
+    <div id="difficulty">
+        <button class="diff-btn" data-diff="easy">Easy</button>
+        <button class="diff-btn active" data-diff="medium">Medium</button>
+        <button class="diff-btn" data-diff="hard">Hard</button>
+    </div>
+
+    <div id="category-tag">Category</div>
+
+    <svg id="hangman-svg" viewBox="0 0 200 200">
+        <!-- Gallows -->
+        <line x1="20" y1="190" x2="180" y2="190" stroke="#333" stroke-width="4" />
+        <line x1="50" y1="190" x2="50" y2="20" stroke="#333" stroke-width="4" />
+        <line x1="50" y1="20" x2="150" y2="20" stroke="#333" stroke-width="4" />
+        <line x1="150" y1="20" x2="150" y2="50" stroke="#333" stroke-width="4" />
+
+        <!-- Hangman Parts -->
+        <circle id="part-1" class="hangman-part" cx="150" cy="70" r="20" /> <!-- Head -->
+        <line id="part-2" class="hangman-part" x1="150" y1="90" x2="150" y2="140" /> <!-- Body -->
+        <line id="part-3" class="hangman-part" x1="150" y1="110" x2="120" y2="130" /> <!-- L Arm -->
+        <line id="part-4" class="hangman-part" x1="150" y1="110" x2="180" y2="130" /> <!-- R Arm -->
+        <line id="part-5" class="hangman-part" x1="150" y1="140" x2="130" y2="170" /> <!-- L Leg -->
+        <line id="part-6" class="hangman-part" x1="150" y1="140" x2="170" y2="170" /> <!-- R Leg -->
+    </svg>
+
+    <div id="word-display">_ _ _ _ _</div>
+    <div id="status-message"></div>
+    <div id="keyboard"></div>
+
+    <div id="stats">Guesses remaining: <span id="remaining-count">6</span></div>
+
+    <button id="reset-btn">New Word</button>
+</div>
+
+<script>
+    // Words are single, lowercase, a–z only. Difficulty is derived from length
+    // (see DIFFICULTY): short words are Easy, long words are Hard.
+    const wordBank = [
+        // ── Animals ──
+        ...['cat','dog','owl','fox','ant','bee','cow','pig','bat','rat','hen','elk',
+            'lion','bear','wolf','frog','goat','deer','seal','crab','duck','swan','mole','toad',
+            'tiger','horse','snake','sheep','mouse','koala','otter','camel','panda','eagle','shark','zebra','moose','hyena','rhino','sloth',
+            'donkey','rabbit','monkey','turtle','parrot','falcon','beaver','badger','walrus','iguana','jaguar','ocelot','cougar','baboon','python','gibbon',
+            'giraffe','dolphin','leopard','gorilla','panther','raccoon','hamster','octopus','buffalo','penguin','cheetah','meerkat','peacock','ostrich','manatee',
+            'elephant','kangaroo','scorpion','squirrel','flamingo','antelope','aardvark','mongoose','platypus','tortoise',
+            'crocodile','butterfly','porcupine','chameleon','orangutan','armadillo','chimpanzee','rhinoceros','hippopotamus'].map(w=>({w,c:'Animals'})),
+
+        // ── Countries ──
+        ...['cuba','peru','chad','mali','iran','iraq','laos','fiji','oman','togo',
+            'japan','spain','italy','china','egypt','kenya','india','chile','ghana','nepal','qatar','sudan','syria','yemen','libya','haiti',
+            'brazil','canada','mexico','france','norway','greece','turkey','poland','sweden','russia','jordan','panama','angola','bhutan','latvia',
+            'germany','finland','ireland','iceland','vietnam','morocco','romania','belgium','jamaica','ecuador','bolivia','nigeria','denmark','ukraine',
+            'thailand','portugal','malaysia','colombia','tanzania','pakistan','paraguay','mongolia',
+            'australia','indonesia','argentina','venezuela','singapore','cambodia','guatemala','nicaragua','switzerland'].map(w=>({w,c:'Countries'})),
+
+        // ── Fruits ──
+        ...['fig','plum','pear','lime','kiwi','date',
+            'apple','mango','grape','lemon','peach','melon','guava','berry','olive',
+            'banana','cherry','papaya','orange','quince','tomato','durian','lychee',
+            'apricot','avocado','currant','kumquat',
+            'pineapple','blueberry','raspberry','blackberry','nectarine','tangerine','cranberry',
+            'strawberry','watermelon','pomegranate'].map(w=>({w,c:'Fruits'})),
+
+        // ── Vegetables ──
+        ...['pea','yam','corn','kale','bean','beet','leek','okra',
+            'onion','chili','chard','cress',
+            'carrot','celery','potato','tomato','radish','turnip','pepper','garlic','squash','ginger','endive',
+            'cabbage','lettuce','spinach','pumpkin','parsnip','shallot',
+            'broccoli','zucchini','eggplant','cucumber','artichoke','asparagus','cauliflower'].map(w=>({w,c:'Vegetables'})),
+
+        // ── Sports ──
+        ...['golf','polo','judo',
+            'rugby','boxing','tennis','hockey','soccer','karate','rowing','diving','skiing','squash','cricket',
+            'archery','cycling','bowling','sailing','fencing','curling','surfing','skating','netball',
+            'baseball','football','swimming','climbing','handball','lacrosse','biathlon',
+            'badminton','wrestling','marathon','triathlon','basketball','volleyball','gymnastics','snowboarding'].map(w=>({w,c:'Sports'})),
+
+        // ── Music ──
+        ...['drum','harp','horn','tuba','oboe','bass','jazz','folk',
+            'piano','flute','viola','cello','banjo','organ','blues','tempo','chord','disco',
+            'guitar','violin','trumpet','melody','rhythm','reggae','techno','ballad','octave',
+            'trombone','clarinet','keyboard','symphony','harmony','soprano','baritone',
+            'saxophone','accordion','orchestra','percussion'].map(w=>({w,c:'Music'})),
+
+        // ── Food ──
+        ...['egg','jam','pie','rice','soup','taco','cake','bread','sushi','pasta','curry','salad','pizza','steak','bacon',
+            'noodle','cheese','butter','waffle','muffin','cookie','burger','omelet','pretzel','popcorn','pancake',
+            'lasagna','sandwich','dumpling','meatball','croissant','spaghetti'].map(w=>({w,c:'Food'})),
+
+        // ── Colors ──
+        ...['red','tan','blue','cyan','pink','gold','gray','teal','lime',
+            'green','black','white','brown','beige','coral','olive','amber','khaki','ivory',
+            'yellow','orange','purple','maroon','silver','indigo','violet','salmon','crimson','magenta','lavender','turquoise'].map(w=>({w,c:'Colors'})),
+
+        // ── Jobs ──
+        ...['chef','pilot','nurse','actor','baker','judge','miner',
+            'doctor','lawyer','farmer','artist','singer','dancer','writer','sailor','barber','tailor','waiter','dentist','plumber',
+            'teacher','painter','soldier','builder','cashier','surgeon','manager','janitor',
+            'engineer','musician','mechanic','reporter','director','plumber','detective',
+            'architect','scientist','astronaut','firefighter','electrician','veterinarian'].map(w=>({w,c:'Jobs'})),
+
+        // ── Space ──
+        ...['sun','star','moon','mars','orbit','comet','lunar','solar',
+            'galaxy','meteor','planet','saturn','uranus','pulsar','cosmos','nebula','rocket',
+            'jupiter','neptune','mercury','eclipse','gravity','stardust',
+            'asteroid','universe','spaceship','astronaut','satellite','telescope','supernova','astronomy','constellation'].map(w=>({w,c:'Space'})),
+
+        // ── Programming ──
+        ...['css','php','sql','git','byte','code','loop','data','java','ruby','rust','node',
+            'html','array','class','stack','queue','token','regex','linux','cache','debug','shell',
+            'python','syntax','object','string','binary','kernel','server','module','pointer','boolean','integer',
+            'compiler','variable','function','database','iterator','recursion',
+            'javascript','algorithm','framework','encryption'].map(w=>({w,c:'Programming'})),
+
+        // ── Nature ──
+        ...['oak','elm','fog','dew','mud','sea','bay','hill',
+            'leaf','tree','rock','sand','lake','cave','reef','dune','moss','fern',
+            'river','beach','cliff','ocean','swamp','marsh','grove','creek','ridge','delta','flora','fauna',
+            'forest','desert','meadow','valley','canyon','glacier','volcano','prairie',
+            'mountain','waterfall','rainforest','wilderness'].map(w=>({w,c:'Nature'})),
+
+        // ── Body ──
+        ...['arm','leg','ear','eye','toe','rib','jaw','hip','lip',
+            'hand','foot','knee','nose','chin','neck','bone','skin','heel','lung',
+            'elbow','wrist','ankle','liver','heart','spine','brain','thumb','chest',
+            'finger','muscle','kidney','stomach','eyebrow','knuckle','shoulder','forehead'].map(w=>({w,c:'Body'})),
+
+        // ── Weather ──
+        ...['sun','fog','ice','rain','snow','wind','hail','mist','heat','cold',
+            'cloud','storm','frost','sunny','windy','foggy','humid',
+            'thunder','drizzle','tornado','rainbow','monsoon','blizzard','overcast','sunshine',
+            'lightning','hurricane','temperature'].map(w=>({w,c:'Weather'})),
+
+        // ── Transportation ──
+        ...['bus','car','van','jet','cab','ship',
+            'taxi','boat','tram','bike','sled','kayak','canoe','ferry','wagon','truck','train','plane','metro','moped',
+            'subway','rocket','scooter','trolley','sailboat',
+            'bicycle','airplane','tricycle','submarine','helicopter','motorcycle','locomotive'].map(w=>({w,c:'Transportation'})),
+
+        // ── Science ──
+        ...['atom','cell','acid','gene','mass','heat','lens','wave',
+            'force','energy','proton','photon','neuron','enzyme','liquid','vacuum','plasma','fossil',
+            'gravity','nucleus','element','reaction','molecule','electron','particle','chemical',
+            'magnetism','radiation','organism','ecosystem','experiment','laboratory'].map(w=>({w,c:'Science'})),
+    ];
+
+    // Difficulty: filter the word pool by length, and set how many wrong guesses
+    // are allowed. The 6-part figure is drawn proportionally so it completes
+    // exactly when guesses run out regardless of the limit.
+    const DIFFICULTY = {
+        easy:   { min: 3, max: 5,  lives: 8 },
+        medium: { min: 6, max: 7,  lives: 6 },
+        hard:   { min: 8, max: 99, lives: 5 },
+    };
+
+    let difficulty = 'medium';
+    let pool = [];
+    let selectedWord = '';
+    let category = '';
+    let guessedLetters = [];
+    let mistakes = 0;
+    let maxMistakes = 6;
+    let gameOver = false;
+
+    const categoryTag = document.getElementById('category-tag');
+    const wordDisplay = document.getElementById('word-display');
+    const statusMsg = document.getElementById('status-message');
+    const remainingCount = document.getElementById('remaining-count');
+    const keyboard = document.getElementById('keyboard');
+    const resetBtn = document.getElementById('reset-btn');
+    const diffButtons = document.querySelectorAll('.diff-btn');
+
+    function buildPool() {
+        const cfg = DIFFICULTY[difficulty];
+        pool = wordBank.filter(o => o.w.length >= cfg.min && o.w.length <= cfg.max);
+        maxMistakes = cfg.lives;
+    }
+
+    function initGame() {
+        buildPool();
+        const randomObj = pool[Math.floor(Math.random() * pool.length)];
+        selectedWord = randomObj.w.toLowerCase();
+        category = randomObj.c;
+        guessedLetters = [];
+        mistakes = 0;
+        gameOver = false;
+
+        categoryTag.textContent = category;
+        statusMsg.textContent = '';
+        statusMsg.className = '';
+        remainingCount.textContent = maxMistakes;
+
+        renderHangman();
+        createKeyboard();
+        updateDisplay();
+    }
+
+    // Reveal the figure proportionally to how many guesses have been used.
+    function renderHangman() {
+        const partsToShow = mistakes >= maxMistakes
+            ? 6
+            : Math.min(6, Math.round((mistakes / maxMistakes) * 6));
+        for (let i = 1; i <= 6; i++) {
+            document.getElementById(`part-${i}`).style.opacity = i <= partsToShow ? '1' : '0';
+        }
+    }
+
+    function createKeyboard() {
+        keyboard.innerHTML = '';
+        const alphabet = 'abcdefghijklmnopqrstuvwxyz'.split('');
+        alphabet.forEach(letter => {
+            const btn = document.createElement('button');
+            btn.textContent = letter.toUpperCase();
+            btn.classList.add('key');
+            btn.addEventListener('click', () => handleGuess(letter));
+            keyboard.appendChild(btn);
+        });
+    }
+
+    function handleGuess(letter) {
+        if (gameOver || guessedLetters.includes(letter)) return;
+
+        guessedLetters.push(letter);
+
+        const buttons = document.querySelectorAll('.key');
+        const btn = Array.from(buttons).find(b => b.textContent.toLowerCase() === letter);
+
+        if (selectedWord.includes(letter)) {
+            if (btn) { btn.classList.add('correct'); btn.disabled = true; }
+        } else {
+            mistakes++;
+            if (btn) { btn.classList.add('wrong'); btn.disabled = true; }
+            renderHangman();
+            remainingCount.textContent = Math.max(0, maxMistakes - mistakes);
+        }
+
+        updateDisplay();
+        checkGameStatus();
+    }
+
+    function updateDisplay() {
+        const display = selectedWord.split('').map(char =>
+            guessedLetters.includes(char) ? char.toUpperCase() : '_'
+        ).join(' ');
+        wordDisplay.textContent = display;
+    }
+
+    function checkGameStatus() {
+        const isWin = selectedWord.split('').every(char => guessedLetters.includes(char));
+
+        if (isWin) {
+            statusMsg.textContent = "YOU WIN! 🎉";
+            statusMsg.className = 'win-text';
+            endGame();
+        } else if (mistakes >= maxMistakes) {
+            statusMsg.textContent = `GAME OVER! Word was: ${selectedWord.toUpperCase()}`;
+            statusMsg.className = 'error-text';
+            endGame();
+        }
+    }
+
+    function endGame() {
+        gameOver = true;
+        document.querySelectorAll('.key').forEach(btn => btn.disabled = true);
+    }
+
+    // Difficulty selector
+    diffButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            difficulty = btn.dataset.diff;
+            diffButtons.forEach(b => b.classList.toggle('active', b === btn));
+            initGame();
+        });
+    });
+
+    // Physical keyboard support
+    window.addEventListener('keydown', (e) => {
+        const key = e.key.toLowerCase();
+        if (/^[a-z]$/.test(key)) {
+            handleGuess(key);
+        }
+    });
+
+    resetBtn.addEventListener('click', initGame);
+
+    // Start the game
+    initGame();
+</script>
+
+</body>
+</html>

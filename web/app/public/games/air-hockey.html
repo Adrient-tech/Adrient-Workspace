@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Air Hockey</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #0a0e1a;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+  #wrap {
+    position: fixed; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center;
+  }
+  #hud {
+    width: 100%;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px;
+    color: #e8eefc;
+    flex: 0 0 auto;
+    gap: 10px;
+  }
+  #title { font-size: 16px; font-weight: 700; letter-spacing: 0.5px; color: #7fd0ff; }
+  #score { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #score .cpu { color: #ff7b8a; }
+  #score .you { color: #6fe3a0; }
+  #score .sep { color: #4a5a78; margin: 0 6px; }
+  #restart {
+    background: #1c2740; color: #cfe0ff; border: 1px solid #33456b;
+    border-radius: 8px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+    cursor: pointer;
+  }
+  #restart:active { background: #26345a; }
+  #stage {
+    flex: 1 1 auto;
+    width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 0;
+    position: relative;
+  }
+  canvas {
+    display: block;
+    touch-action: none;
+    background: #0e1530;
+    border-radius: 14px;
+  }
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(6,10,24,0.78);
+    display: none;
+    align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .overlay.show { display: flex; }
+  .modal {
+    background: #121a33;
+    padding: 28px 30px;
+    border-radius: 16px;
+    text-align: center;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+    max-width: 80vw;
+    color: #e8eefc;
+  }
+  .modal h2 { margin: 0 0 6px; font-size: 1.5rem; color: #7fd0ff; }
+  .modal p { margin: 0 0 18px; color: #9fb3d9; }
+  .modal .modeBtns { display: flex; flex-direction: column; gap: 12px; }
+  .modal button {
+    background: #1c2740; color: #cfe0ff; border: 1px solid #33456b;
+    border-radius: 10px; padding: 14px 18px; font-size: 16px; font-weight: 600;
+    cursor: pointer;
+  }
+  .modal button:active { background: #26345a; }
+</style>
+    <!-- pwa:start -->
+    <link rel="icon" type="image/svg+xml" href="/games/icons/air-hockey.svg">
+    <link rel="manifest" href="/games/air-hockey.webmanifest">
+    <meta name="theme-color" content="#DC2626">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Air Hockey">
+    <link rel="apple-touch-icon" href="/games/icons/air-hockey.svg">
+    <style>/* keep content clear of the iPhone notch / camera island (safe-area insets) */
+    body{padding-top:env(safe-area-inset-top,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px);}
+    </style>
+    <script>
+    if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/games/games-sw.js').catch(function(){})})}
+    // Back-to-all-games pill (top-left). Positioned with env(safe-area-inset-*)
+    // so it clears the notch / Dynamic Island.
+    window.addEventListener('DOMContentLoaded',function(){var a=document.createElement('a');a.href='/games';a.textContent='‹ Games';a.setAttribute('style','position:fixed;left:calc(env(safe-area-inset-left,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;padding:6px 12px;border-radius:20px;background:rgba(15,23,42,.6);color:#fff;font:600 13px system-ui,sans-serif;text-decoration:none;box-shadow:0 2px 8px rgba(0,0,0,.3);touch-action:manipulation');document.body.appendChild(a);});
+    // Top-right pause/menu button (placed far from gameplay). Opens a top sheet
+    // with high score, Install, Back to games, and Report an issue. Opening the
+    // menu fires a 'adrient:pause' event + dims/blocks the screen (soft pause);
+    // closing fires 'adrient:resume'. Games can opt in to true pause + scoring via
+    // the window.AdrientGame hook (highScore()/setHighScore()).
+    (function(){
+      var ID="air-hockey",NAME="Air Hockey",COLOR="#DC2626",HK='adrient-hi-'+ID;
+      window.AdrientGame={
+        highScore:function(){return parseInt(localStorage.getItem(HK)||'0',10)||0;},
+        setHighScore:function(n){n=Math.floor(+n||0);try{if(n>this.highScore())localStorage.setItem(HK,String(n));}catch(e){}return this.highScore();}
+      };
+      var dp=null,scrim,sheet,hiEl,installItem,isOpen=false;
+      function css(el,s){el.setAttribute('style',s);}
+      function emit(n){try{window.dispatchEvent(new Event(n));}catch(e){}}
+      window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();dp=e;if(installItem)installItem.style.display='';});
+      window.addEventListener('appinstalled',function(){dp=null;if(installItem)installItem.style.display='none';});
+      function item(label,fn){var b=document.createElement('button');b.textContent=label;css(b,'display:block;width:100%;text-align:left;margin:6px 0;padding:12px 14px;border:1px solid #243049;border-radius:10px;background:#16203a;color:#e8eefc;font:600 15px system-ui,sans-serif;cursor:pointer;touch-action:manipulation');b.onclick=fn;return b;}
+      function openMenu(){if(isOpen)return;isOpen=true;hiEl.textContent='High score: '+(window.AdrientGame.highScore()||'—');scrim.style.pointerEvents='auto';scrim.style.opacity='1';sheet.style.transform='translateY(0)';emit('adrient:pause');}
+      function closeMenu(){if(!isOpen)return;isOpen=false;scrim.style.opacity='0';scrim.style.pointerEvents='none';sheet.style.transform='translateY(-110%)';emit('adrient:resume');}
+      function doInstall(){if(!dp)return;var d=dp;dp=null;installItem.style.display='none';d.prompt();d.userChoice.finally(function(){});closeMenu();}
+      function report(){var body='\n\n----\nGame: '+NAME+'\nURL: '+location.href+'\nDevice: '+navigator.userAgent;location.href='mailto:info@adrient.com?subject='+encodeURIComponent('Issue: '+NAME)+'&body='+encodeURIComponent(body);}
+      function build(){
+        var btn=document.createElement('button');btn.setAttribute('aria-label','Menu');btn.textContent='\u23F8';
+        css(btn,'position:fixed;right:calc(env(safe-area-inset-right,0px) + 10px);top:calc(env(safe-area-inset-top,0px) + 10px);z-index:2147483646;width:40px;height:40px;padding:0;border:none;border-radius:50%;background:rgba(15,23,42,.6);color:#fff;font-size:17px;box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;touch-action:manipulation');
+        btn.onclick=openMenu;document.body.appendChild(btn);
+        scrim=document.createElement('div');css(scrim,'position:fixed;inset:0;z-index:2147483646;background:rgba(0,0,0,.55);opacity:0;transition:opacity .18s;pointer-events:none');scrim.onclick=closeMenu;document.body.appendChild(scrim);
+        sheet=document.createElement('div');css(sheet,'position:fixed;left:0;right:0;top:0;z-index:2147483647;transform:translateY(-110%);transition:transform .22s;background:#0f172a;color:#e8eefc;border-bottom-left-radius:16px;border-bottom-right-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.5);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 16px;max-width:480px;margin:0 auto');document.body.appendChild(sheet);
+        var h=document.createElement('div');css(h,'font-weight:700;font-size:17px;color:'+COLOR);h.textContent=NAME;sheet.appendChild(h);
+        hiEl=document.createElement('div');css(hiEl,'font-size:13px;color:#9fb3d9;margin:2px 0 12px');sheet.appendChild(hiEl);
+        sheet.appendChild(item('\u25B6 Resume',closeMenu));
+        installItem=item('\u2B07 Install app',doInstall);installItem.style.display=dp?'':'none';sheet.appendChild(installItem);
+        sheet.appendChild(item('\u2039 All games',function(){location.href='/games';}));
+        sheet.appendChild(item('\u2691 Report an issue',report));
+      }
+      if(document.body)build();else window.addEventListener('DOMContentLoaded',build);
+    })();
+    </script>
+    <!-- pwa:end -->
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div id="title">AIR HOCKEY</div>
+    <div id="score"><span class="cpu" id="cpuLabel">CPU</span> <span class="cpu" id="cpuScore">0</span><span class="sep">:</span><span class="you" id="youScore">0</span> <span class="you" id="youLabel">You</span></div>
+    <button id="restart">Restart</button>
+  </div>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+  </div>
+</div>
+<div id="modeOverlay" class="overlay">
+  <div class="modal">
+    <h2>Air Hockey</h2>
+    <p>Choose a mode</p>
+    <div class="modeBtns">
+      <button id="modeAi">🤖 vs Computer</button>
+      <button id="modeTwo">👥 2 Players</button>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  "use strict";
+
+  var canvas = document.getElementById("cv");
+  var ctx = canvas.getContext("2d");
+  var stage = document.getElementById("stage");
+  var cpuScoreEl = document.getElementById("cpuScore");
+  var youScoreEl = document.getElementById("youScore");
+  var restartBtn = document.getElementById("restart");
+  var cpuLabelEl = document.getElementById("cpuLabel");
+  var youLabelEl = document.getElementById("youLabel");
+  var modeOverlay = document.getElementById("modeOverlay");
+
+  // Game mode: 'ai' = top paddle driven by computer (default),
+  // '2p' = top paddle driven by a second finger in the top half (local hot-seat).
+  var mode = 'ai';
+  var picking = false;   // mode-select overlay is up -> freeze simulation
+  var paused = false;    // soft pause from the top menu (adrient:pause/resume)
+
+  // Honor the menu's soft-pause events so the simulation freezes while the
+  // top sheet is open, then resumes when it closes.
+  window.addEventListener("adrient:pause", function () { paused = true; });
+  window.addEventListener("adrient:resume", function () { paused = false; });
+
+  // ---- Logical playfield dimensions (table aspect ~ tall/portrait) ----
+  // We use a fixed logical coordinate space and scale to fit.
+  var W = 360;       // logical width
+  var H = 600;       // logical height
+  var scale = 1;     // CSS px per logical unit
+  var dpr = 1;
+
+  var WIN_SCORE = 7;
+  var GOAL_W = 150;          // goal mouth width
+  var PUCK_R = 13;
+  var MALLET_R = 26;
+  var WALL = 8;              // wall thickness inset
+
+  // ---- State ----
+  var puck = { x: W / 2, y: H / 2, vx: 0, vy: 0 };
+  var you = { x: W / 2, y: H * 0.78, px: W / 2, py: H * 0.78 };   // bottom mallet (player)
+  var cpu = { x: W / 2, y: H * 0.22, vx: 0, vy: 0 };             // top mallet
+  var scoreYou = 0, scoreCpu = 0;
+  var gameOver = false;
+  var winner = null;
+  var serveTimer = 0;        // frames to wait before puck active after goal
+  var flash = 0;             // goal flash effect
+
+  // ---- Audio ----
+  var audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try {
+        var AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) audioCtx = new AC();
+      } catch (e) { audioCtx = null; }
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+  }
+  function beep(freq, dur, type, vol) {
+    if (!audioCtx) return;
+    try {
+      var o = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      o.type = type || "sine";
+      o.frequency.value = freq;
+      var now = audioCtx.currentTime;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(vol || 0.18, now + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(now); o.stop(now + dur + 0.02);
+    } catch (e) {}
+  }
+  function sndWall() { beep(220 + Math.random() * 40, 0.05, "square", 0.08); }
+  function sndHit() { beep(420, 0.06, "triangle", 0.16); }
+  function sndGoalYou() { beep(660, 0.12, "sawtooth", 0.18); setTimeout(function(){ beep(880, 0.14, "sawtooth", 0.16); }, 90); }
+  function sndGoalCpu() { beep(180, 0.2, "sawtooth", 0.18); }
+  function sndWin() {
+    beep(523, 0.12, "square", 0.18);
+    setTimeout(function(){ beep(659, 0.12, "square", 0.18); }, 120);
+    setTimeout(function(){ beep(784, 0.2, "square", 0.18); }, 240);
+  }
+
+  // ---- Resize / fit canvas to viewport keeping aspect ratio ----
+  function resize() {
+    var availW = stage.clientWidth;
+    var availH = stage.clientHeight;
+    if (availW <= 0 || availH <= 0) return;
+    var pad = 6;
+    availW -= pad * 2;
+    availH -= pad * 2;
+    var aspect = W / H;
+    var cssW, cssH;
+    if (availW / availH > aspect) {
+      cssH = availH;
+      cssW = cssH * aspect;
+    } else {
+      cssW = availW;
+      cssH = cssW / aspect;
+    }
+    scale = cssW / W;
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+  }
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function () { setTimeout(resize, 100); });
+
+  // ---- Convert pointer (client coords) to logical playfield coords ----
+  function toLogical(clientX, clientY) {
+    var r = canvas.getBoundingClientRect();
+    var lx = (clientX - r.left) / r.width * W;
+    var ly = (clientY - r.top) / r.height * H;
+    return { x: lx, y: ly };
+  }
+
+  // ---- Player input ----
+  // Bottom paddle (Player 1 / You) target is targetX/targetY.
+  // Top paddle (Player 2, only in '2p' mode) target is target2X/target2Y.
+  var dragging = false;
+  var targetX = you.x, targetY = you.y;
+  var target2X = cpu.x, target2Y = cpu.y;
+  var has2pTouch = false;     // is a finger currently controlling the top paddle?
+
+  function setTarget(clientX, clientY) {
+    var p = toLogical(clientX, clientY);
+    targetX = p.x;
+    targetY = p.y;
+  }
+  function setTarget2(clientX, clientY) {
+    var p = toLogical(clientX, clientY);
+    target2X = p.x;
+    target2Y = p.y;
+  }
+
+  function onPointerDown(e) {
+    ensureAudio();
+    if (gameOver) { showModeSelect(); return; }
+    dragging = true;
+    setTarget(e.clientX, e.clientY);
+    e.preventDefault();
+  }
+  function onPointerMove(e) {
+    if (!dragging) return;
+    setTarget(e.clientX, e.clientY);
+    e.preventDefault();
+  }
+  function onPointerUp(e) {
+    dragging = false;
+    if (e && e.preventDefault) e.preventDefault();
+  }
+
+  // ---- Touch handling: partition active touches into top / bottom halves so
+  // two fingers (one player at each end of the phone) work simultaneously. ----
+  function handleTouches(e) {
+    ensureAudio();
+    if (gameOver) { showModeSelect(); e.preventDefault(); return; }
+    var r = canvas.getBoundingClientRect();
+    var midY = r.top + r.height / 2;
+    var bottomT = null, topT = null;
+    var list = e.touches;
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (t.clientY >= midY) { if (!bottomT) bottomT = t; }
+      else { if (!topT) topT = t; }
+    }
+    if (bottomT) { dragging = true; setTarget(bottomT.clientX, bottomT.clientY); }
+    else { dragging = false; }
+    if (mode === '2p') {
+      if (topT) { has2pTouch = true; setTarget2(topT.clientX, topT.clientY); }
+      else { has2pTouch = false; }
+    }
+    e.preventDefault();
+  }
+
+  // Use touch events directly (so we can read all simultaneous touches) plus
+  // mouse / pointer for desktop (which drives only the bottom paddle).
+  canvas.addEventListener("touchstart", handleTouches, { passive: false });
+  window.addEventListener("touchmove", handleTouches, { passive: false });
+  window.addEventListener("touchend", handleTouches, { passive: false });
+  window.addEventListener("touchcancel", handleTouches, { passive: false });
+
+  if (window.PointerEvent) {
+    canvas.addEventListener("pointerdown", function (e) { if (e.pointerType === "touch") return; onPointerDown(e); }, { passive: false });
+    window.addEventListener("pointermove", function (e) { if (e.pointerType === "touch") return; onPointerMove(e); }, { passive: false });
+    window.addEventListener("pointerup", function (e) { if (e.pointerType === "touch") return; onPointerUp(e); }, { passive: false });
+    window.addEventListener("pointercancel", function (e) { if (e.pointerType === "touch") return; onPointerUp(e); }, { passive: false });
+  } else {
+    canvas.addEventListener("mousedown", function (e) { onPointerDown(e); });
+    window.addEventListener("mousemove", function (e) { onPointerMove(e); });
+    window.addEventListener("mouseup", function (e) { onPointerUp(e); });
+  }
+
+  // Prevent scrolling/zoom gestures on the whole document.
+  document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+  document.addEventListener("gesturestart", function (e) { e.preventDefault(); }, { passive: false });
+
+  restartBtn.addEventListener("click", function () { ensureAudio(); showModeSelect(); });
+
+  // ---- Geometry helpers ----
+  var goalLeft = (W - GOAL_W) / 2;
+  var goalRight = (W + GOAL_W) / 2;
+
+  function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+  // ---- Reset puck to center, served toward whoever conceded ----
+  function resetPuck(towardBottom) {
+    puck.x = W / 2;
+    puck.y = H / 2;
+    puck.vx = 0;
+    puck.vy = 0;
+    serveTimer = 45; // ~0.75s pause
+    puck._serveDir = towardBottom ? 1 : -1;
+  }
+
+  function restart() {
+    scoreYou = 0; scoreCpu = 0;
+    gameOver = false; winner = null;
+    updateScore();
+    you.x = W / 2; you.y = H * 0.78; you.px = you.x; you.py = you.y;
+    cpu.x = W / 2; cpu.y = H * 0.22; cpu.vx = 0; cpu.vy = 0;
+    targetX = you.x; targetY = you.y;
+    target2X = cpu.x; target2Y = cpu.y;
+    has2pTouch = false; dragging = false;
+    resetPuck(Math.random() < 0.5);
+  }
+
+  function updateScore() {
+    youScoreEl.textContent = scoreYou;
+    cpuScoreEl.textContent = scoreCpu;
+  }
+
+  // ---- Mallet vs puck collision (elastic-ish + impart mallet velocity) ----
+  function malletCollide(mx, my, mvx, mvy) {
+    var dx = puck.x - mx;
+    var dy = puck.y - my;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var minDist = PUCK_R + MALLET_R;
+    if (dist < minDist && dist > 0) {
+      var nx = dx / dist;
+      var ny = dy / dist;
+      // Push puck out of overlap
+      var overlap = minDist - dist;
+      puck.x += nx * overlap;
+      puck.y += ny * overlap;
+      // Reflect puck velocity about the normal
+      var vDotN = puck.vx * nx + puck.vy * ny;
+      if (vDotN < 0) {
+        puck.vx -= 2 * vDotN * nx;
+        puck.vy -= 2 * vDotN * ny;
+      }
+      // Impart mallet momentum along the normal
+      var mDotN = mvx * nx + mvy * ny;
+      if (mDotN > 0) {
+        puck.vx += nx * mDotN * 1.1;
+        puck.vy += ny * mDotN * 1.1;
+      }
+      // Always give a minimum kick away from the mallet so it never sticks
+      var speed = Math.sqrt(puck.vx * puck.vx + puck.vy * puck.vy);
+      var minSpeed = 3.2;
+      if (speed < minSpeed) {
+        puck.vx += nx * (minSpeed - speed);
+        puck.vy += ny * (minSpeed - speed);
+      }
+      sndHit();
+      return true;
+    }
+    return false;
+  }
+
+  // ---- Physics step ----
+  var MAX_PUCK_SPEED = 16;
+  var FRICTION = 0.995;
+
+  function step() {
+    // --- Player mallet: move toward finger target, clamped to bottom half ---
+    you.px = you.x; you.py = you.y;
+    var halfTop = H / 2 + MALLET_R * 0.5; // keep mallet slightly past center allowed? keep on own half
+    var tx = clamp(targetX, WALL + MALLET_R, W - WALL - MALLET_R);
+    var ty = clamp(targetY, H / 2 + MALLET_R, H - WALL - MALLET_R);
+    // Smooth follow for responsiveness without jitter
+    you.x += (tx - you.x) * 0.45;
+    you.y += (ty - you.y) * 0.45;
+    var youVx = you.x - you.px;
+    var youVy = you.y - you.py;
+
+    // --- Top paddle: AI in 'ai' mode, or Player 2's finger in '2p' mode ---
+    if (mode === '2p') {
+      topPaddleHuman();
+    } else {
+      cpuAI();
+    }
+
+    // --- Puck integration ---
+    if (serveTimer > 0) {
+      serveTimer--;
+      if (serveTimer === 0) {
+        // launch the puck on serve
+        var ang = (Math.random() - 0.5) * 0.8;
+        var spd = 5.5;
+        puck.vx = Math.sin(ang) * spd;
+        puck.vy = (puck._serveDir || 1) * Math.cos(ang) * spd;
+      }
+    } else {
+      puck.x += puck.vx;
+      puck.y += puck.vy;
+      puck.vx *= FRICTION;
+      puck.vy *= FRICTION;
+    }
+
+    // Clamp puck speed
+    var ps = Math.sqrt(puck.vx * puck.vx + puck.vy * puck.vy);
+    if (ps > MAX_PUCK_SPEED) {
+      puck.vx = puck.vx / ps * MAX_PUCK_SPEED;
+      puck.vy = puck.vy / ps * MAX_PUCK_SPEED;
+    }
+
+    // --- Wall collisions (left/right always; top/bottom except goal mouth) ---
+    // Left
+    if (puck.x - PUCK_R < WALL) {
+      puck.x = WALL + PUCK_R;
+      puck.vx = Math.abs(puck.vx) * 0.92;
+      sndWall();
+    }
+    // Right
+    if (puck.x + PUCK_R > W - WALL) {
+      puck.x = W - WALL - PUCK_R;
+      puck.vx = -Math.abs(puck.vx) * 0.92;
+      sndWall();
+    }
+    // Top wall (CPU side) — unless within goal mouth
+    if (puck.y - PUCK_R < WALL) {
+      if (puck.x > goalLeft && puck.x < goalRight) {
+        // possible goal (top goal = player scores) handled below once fully in
+      } else {
+        puck.y = WALL + PUCK_R;
+        puck.vy = Math.abs(puck.vy) * 0.92;
+        sndWall();
+      }
+    }
+    // Bottom wall (player side) — unless within goal mouth
+    if (puck.y + PUCK_R > H - WALL) {
+      if (puck.x > goalLeft && puck.x < goalRight) {
+        // possible goal (bottom goal = CPU scores)
+      } else {
+        puck.y = H - WALL - PUCK_R;
+        puck.vy = -Math.abs(puck.vy) * 0.92;
+        sndWall();
+      }
+    }
+
+    // --- Goal detection (puck center fully past the line within mouth) ---
+    if (!gameOver && serveTimer === 0) {
+      if (puck.y + PUCK_R < 0 + 2 && puck.x > goalLeft && puck.x < goalRight) {
+        // entered top goal -> player scores
+        scoreYou++;
+        updateScore();
+        flash = 18;
+        if (scoreYou >= WIN_SCORE) { endGame("you"); }
+        else { sndGoalYou(); resetPuck(false); }
+      } else if (puck.y - PUCK_R > H - 2 && puck.x > goalLeft && puck.x < goalRight) {
+        // entered bottom goal -> CPU scores
+        scoreCpu++;
+        updateScore();
+        flash = 18;
+        if (scoreCpu >= WIN_SCORE) { endGame("cpu"); }
+        else { sndGoalCpu(); resetPuck(true); }
+      }
+    }
+
+    // --- Mallet collisions ---
+    malletCollide(you.x, you.y, youVx, youVy);
+    malletCollide(cpu.x, cpu.y, cpu.vx, cpu.vy);
+
+    // Anti-stuck: if puck is barely moving and not on serve, nudge it
+    if (serveTimer === 0 && !gameOver) {
+      var sp = Math.sqrt(puck.vx * puck.vx + puck.vy * puck.vy);
+      if (sp < 0.25) {
+        puck._stuck = (puck._stuck || 0) + 1;
+        if (puck._stuck > 60) {
+          var a = Math.random() * Math.PI * 2;
+          puck.vx = Math.cos(a) * 2.5;
+          puck.vy = Math.sin(a) * 2.5;
+          puck._stuck = 0;
+        }
+      } else {
+        puck._stuck = 0;
+      }
+    }
+
+    if (flash > 0) flash--;
+  }
+
+  // ---- CPU AI: defend goal, attack when puck on its half ----
+  function cpuAI() {
+    var px = cpu.x, py = cpu.y;
+    var desiredX, desiredY;
+    var homeY = H * 0.18;
+
+    if (puck.y < H * 0.55) {
+      // Puck on CPU's half (or near) — go attack / intercept
+      // Aim to hit puck toward player's goal: position slightly behind puck (higher up than puck if puck below it)
+      desiredX = puck.x;
+      // If CPU is above the puck, dive to strike it downward
+      if (cpu.y < puck.y - PUCK_R) {
+        desiredY = puck.y - PUCK_R - MALLET_R * 0.3; // approach from above to push down
+        // but to actually push the puck DOWN toward player goal, get above & ram down
+        desiredY = puck.y - (MALLET_R + PUCK_R) * 0.5;
+      } else {
+        desiredY = puck.y - (MALLET_R + PUCK_R) * 0.6;
+      }
+      desiredY = clamp(desiredY, WALL + MALLET_R, H * 0.48);
+    } else {
+      // Puck on player's half — return to defensive position, track puck x a bit
+      desiredX = W / 2 + (puck.x - W / 2) * 0.5;
+      desiredY = homeY;
+    }
+
+    // Keep CPU in front of its goal when puck is dangerous (heading toward top)
+    if (puck.vy < 0 && puck.y < H * 0.5) {
+      // predict puck x at goal line
+      var t = (homeY - puck.y) / (puck.vy || -0.0001);
+      if (t > 0 && t < 90) {
+        var predX = puck.x + puck.vx * t;
+        predX = clamp(predX, goalLeft + 10, goalRight - 10);
+        desiredX = predX;
+      }
+    }
+
+    desiredX = clamp(desiredX, WALL + MALLET_R, W - WALL - MALLET_R);
+    desiredY = clamp(desiredY, WALL + MALLET_R, H / 2 - MALLET_R);
+
+    // Difficulty: move speed cap
+    var maxSpd = 5.2;
+    var dx = desiredX - px;
+    var dy = desiredY - py;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d > maxSpd) {
+      dx = dx / d * maxSpd;
+      dy = dy / d * maxSpd;
+    }
+    var nx = px + dx;
+    var ny = py + dy;
+    cpu.vx = nx - cpu.x;
+    cpu.vy = ny - cpu.y;
+    cpu.x = nx;
+    cpu.y = ny;
+  }
+
+  // ---- Top paddle driven by Player 2's finger (top half), mirrors bottom ----
+  function topPaddleHuman() {
+    var px = cpu.x, py = cpu.y;
+    if (has2pTouch) {
+      var tx = clamp(target2X, WALL + MALLET_R, W - WALL - MALLET_R);
+      var ty = clamp(target2Y, WALL + MALLET_R, H / 2 - MALLET_R);
+      cpu.x += (tx - cpu.x) * 0.45;
+      cpu.y += (ty - cpu.y) * 0.45;
+    }
+    // velocity used for puck momentum transfer
+    cpu.vx = cpu.x - px;
+    cpu.vy = cpu.y - py;
+  }
+
+  function endGame(who) {
+    gameOver = true;
+    winner = who;
+    if (who === "you") sndWin();
+    else sndGoalCpu();
+  }
+
+  // ---- Rendering ----
+  function draw() {
+    ctx.save();
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+
+    // Table surface
+    ctx.fillStyle = "#0e1530";
+    roundRect(0, 0, W, H, 14); ctx.fill();
+
+    // Goal flash background
+    if (flash > 0) {
+      ctx.fillStyle = "rgba(127,208,255," + (flash / 18 * 0.18) + ")";
+      ctx.fillRect(0, 0, W, H);
+    }
+
+    // Center line + circle
+    ctx.strokeStyle = "#27406e";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(WALL, H / 2);
+    ctx.lineTo(W - WALL, H / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, 46, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(W / 2, H / 2, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "#27406e";
+    ctx.fill();
+
+    // Border walls
+    ctx.strokeStyle = "#3a558c";
+    ctx.lineWidth = WALL;
+    ctx.lineJoin = "round";
+    ctx.strokeRect(WALL / 2, WALL / 2, W - WALL, H - WALL);
+
+    // Goals (draw mouths in accent colors, cut out the wall there)
+    // Top goal (player scores here) -> green-ish
+    ctx.fillStyle = "#0e1530";
+    ctx.fillRect(goalLeft, 0, GOAL_W, WALL + 1);
+    ctx.fillRect(goalLeft, H - WALL - 1, GOAL_W, WALL + 1);
+    // Goal markers
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#6fe3a0";
+    ctx.beginPath(); ctx.moveTo(goalLeft, 3); ctx.lineTo(goalRight, 3); ctx.stroke();
+    ctx.strokeStyle = "#ff7b8a";
+    ctx.beginPath(); ctx.moveTo(goalLeft, H - 3); ctx.lineTo(goalRight, H - 3); ctx.stroke();
+    // Goal posts
+    ctx.fillStyle = "#6fe3a0";
+    ctx.fillRect(goalLeft - 3, 2, 4, 14); ctx.fillRect(goalRight - 1, 2, 4, 14);
+    ctx.fillStyle = "#ff7b8a";
+    ctx.fillRect(goalLeft - 3, H - 16, 4, 14); ctx.fillRect(goalRight - 1, H - 16, 4, 14);
+
+    // CPU mallet (top)
+    drawMallet(cpu.x, cpu.y, "#ff7b8a", "#7a2230");
+    // Player mallet (bottom)
+    drawMallet(you.x, you.y, "#6fe3a0", "#1d5a3a");
+
+    // Puck
+    ctx.save();
+    ctx.shadowColor = "rgba(127,208,255,0.6)";
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(puck.x, puck.y, PUCK_R, 0, Math.PI * 2);
+    ctx.fillStyle = "#e8eefc";
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(puck.x, puck.y, PUCK_R * 0.55, 0, Math.PI * 2);
+    ctx.fillStyle = "#9fb8e8";
+    ctx.fill();
+
+    // Serve countdown hint
+    if (serveTimer > 0 && !gameOver) {
+      ctx.fillStyle = "rgba(232,238,252,0.5)";
+      ctx.font = "bold 18px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("Ready...", W / 2, H / 2 - 70);
+    }
+
+    // Game over overlay
+    if (gameOver) {
+      ctx.fillStyle = "rgba(6,10,24,0.78)";
+      ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = "center";
+      ctx.fillStyle = winner === "you" ? "#6fe3a0" : "#ff7b8a";
+      ctx.font = "bold 34px sans-serif";
+      var winMsg;
+      if (mode === '2p') winMsg = winner === "you" ? "PLAYER 1 WINS!" : "PLAYER 2 WINS!";
+      else winMsg = winner === "you" ? "YOU WIN!" : "CPU WINS";
+      ctx.fillText(winMsg, W / 2, H / 2 - 16);
+      ctx.fillStyle = "#cfe0ff";
+      ctx.font = "bold 18px sans-serif";
+      ctx.fillText(scoreCpu + " : " + scoreYou, W / 2, H / 2 + 18);
+      ctx.fillStyle = "#9fb8e8";
+      ctx.font = "15px sans-serif";
+      ctx.fillText("Tap to choose a mode", W / 2, H / 2 + 52);
+    }
+
+    ctx.restore();
+  }
+
+  function drawMallet(x, y, color, dark) {
+    ctx.save();
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, MALLET_R, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.restore();
+    // inner ring
+    ctx.beginPath();
+    ctx.arc(x, y, MALLET_R * 0.62, 0, Math.PI * 2);
+    ctx.fillStyle = dark;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, MALLET_R * 0.4, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // ---- Main loop ----
+  var lastT = 0;
+  var acc = 0;
+  var STEP = 1000 / 60;
+  function loop(t) {
+    if (!lastT) lastT = t;
+    var dt = t - lastT;
+    lastT = t;
+    if (dt > 250) dt = 250; // avoid spiral after tab switch
+    acc += dt;
+    var iters = 0;
+    while (acc >= STEP && iters < 5) {
+      if (!picking && !paused) step();
+      acc -= STEP;
+      iters++;
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  // ---- Mode selection ----
+  function applyLabels() {
+    if (mode === '2p') {
+      cpuLabelEl.textContent = "P2";
+      youLabelEl.textContent = "P1";
+    } else {
+      cpuLabelEl.textContent = "CPU";
+      youLabelEl.textContent = "You";
+    }
+  }
+  function showModeSelect() {
+    picking = true;
+    modeOverlay.classList.add("show");
+  }
+  function startMode(m) {
+    ensureAudio();
+    mode = m;
+    applyLabels();
+    picking = false;
+    modeOverlay.classList.remove("show");
+    restart();
+  }
+  document.getElementById("modeAi").addEventListener("click", function () { startMode('ai'); });
+  document.getElementById("modeTwo").addEventListener("click", function () { startMode('2p'); });
+
+  // ---- Init ----
+  resize();
+  applyLabels();
+  restart();
+  showModeSelect();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
